@@ -47,13 +47,11 @@ public class PostController {
 
     // Post CRUD endpoints
     @GetMapping("/posts/{postId}")
-    public ResponseEntity<?> getPost(@PathVariable Long postId) {
+    public ResponseEntity<?> getPost(@PathVariable Long postId, @RequestParam(required = false) Long viewerId) {
         try {
-            // Get post with details
-            var comments = postService.getComments(postId);
-            return ResponseEntity.ok(comments);
-        } catch (Exception ex) {
-            return ResponseEntity.badRequest().body(ex.getMessage());
+            return ResponseEntity.ok(postService.getPost(postId, viewerId));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.status(404).body(ex.getMessage());
         }
     }
 
@@ -78,8 +76,8 @@ public class PostController {
 
     // Post comments endpoints (RESTful: /posts/{postId}/comments)
     @GetMapping("/posts/{postId}/comments")
-    public List<PostCommentResponse> getComments(@PathVariable Long postId) {
-        return postService.getComments(postId);
+    public List<PostCommentResponse> getComments(@PathVariable Long postId, @RequestParam(required = false) Long viewerId) {
+        return postService.getComments(postId, viewerId);
     }
 
     @PostMapping("/posts/{postId}/comments")

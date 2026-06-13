@@ -175,9 +175,19 @@ public class FriendshipService {
         }
         Optional<Friendship> f2 = friendshipRepository.findByRequesterIdAndAddresseeId(targetId, viewerId);
         if (f2.isPresent()) {
-            return "pending_incoming".equals(f2.get().getStatus()) ? "pending_incoming" : f2.get().getStatus();
+            return "pending".equals(f2.get().getStatus()) ? "pending_incoming" : f2.get().getStatus();
         }
         return "none";
+    }
+
+    public FriendshipResponse getFriendshipBetween(Long viewerId, Long targetId) {
+        if (viewerId == null || targetId == null || viewerId.equals(targetId)) {
+            return null;
+        }
+        return friendshipRepository.findByRequesterIdAndAddresseeId(viewerId, targetId)
+            .or(() -> friendshipRepository.findByRequesterIdAndAddresseeId(targetId, viewerId))
+            .map(this::toResponse)
+            .orElse(null);
     }
 
     private User findUser(Long id) {

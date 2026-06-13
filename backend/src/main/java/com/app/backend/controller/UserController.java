@@ -51,9 +51,9 @@ public class UserController {
     }
 
     @PatchMapping("/{userId}/protection")
-    public ResponseEntity<?> toggleProtection(@PathVariable Long userId) {
+    public ResponseEntity<?> setProtection(@PathVariable Long userId, @RequestBody Map<String, Boolean> payload) {
         try {
-            return ResponseEntity.ok(userService.toggleAccountProtection(userId));
+            return ResponseEntity.ok(userService.setAccountProtection(userId, payload.get("enabled")));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }

@@ -23,6 +23,9 @@ public interface PostShareRepository extends JpaRepository<PostShare, Long> {
     // Find shares to a specific group
     Page<PostShare> findBySharedToGroupId(Long groupId, Pageable pageable);
 
+    @Query("SELECT ps FROM PostShare ps WHERE ps.sharedToGroup IS NULL ORDER BY ps.createdAt DESC")
+    Page<PostShare> findTimelineShares(Pageable pageable);
+
     // Check if a user has already shared a post (using @Query to avoid parsing issues)
     @Query("SELECT COUNT(ps) > 0 FROM PostShare ps WHERE ps.originalPost.id = :postId AND ps.sharedBy.id = :userId")
     boolean existsByOriginalPostIdAndSharedByUserId(@Param("postId") Long postId, @Param("userId") Long userId);

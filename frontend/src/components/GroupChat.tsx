@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
+import { confirmAction } from '../lib/feedback';
 import ChatMessage from './ChatMessage';
 import ChatComposer from './ChatComposer';
 import type { Message, User, GroupMember } from '../types';
@@ -59,8 +60,8 @@ export default function GroupChat({ groupId, user, members, fillHeight = false }
 
   const connectWebSocket = () => {
     const ws = new WebSocket('ws://localhost:8080/ws/chat');
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'auth', userId }));
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'auth', userId, token: localStorage.getItem('social_token') }));
       setWsConnected(true);
       api.joinGroupChat(groupId, userId).catch(console.error);
     };
@@ -104,11 +105,11 @@ export default function GroupChat({ groupId, user, members, fillHeight = false }
     return () => clearInterval(interval);
   }, []);
 
-  const handleSend = async (content: string, mediaUrl: string | null) => {
+  const handleSend = async (content: string, mediaUrl: string | null, mentionedUserIds: number[] = [], isAllMentioned = false) => {
     if (!content.trim() && !mediaUrl) return;
     if (!wsConnected) { alert('Không kết nối được với máy chủ chat'); return; }
     try {
-      await api.sendGroupMessage(groupId, userId, content, mediaUrl ?? undefined, [], false);
+      await api.sendGroupMessage(groupId, userId, content, mediaUrl ?? undefined, mentionedUserIds, isAllMentioned);
     } catch (error: any) {
       console.error('Failed to send message:', error);
       alert('Không thể gửi tin nhắn: ' + (error?.message || 'Lỗi không xác định'));
@@ -116,7 +117,7 @@ export default function GroupChat({ groupId, user, members, fillHeight = false }
   };
 
   const handleRecall = async (messageId: number) => {
-    if (!confirm('Bạn có chắc muốn thu hồi tin nhắn này?')) return;
+    if (!await confirmAction('Bạn có chắc muốn thu hồi tin nhắn này?', { title: 'Thu hồi tin nhắn', confirmLabel: 'Thu hồi', danger: true })) return;
     try { await api.recallMessage(messageId, userId); }
     catch (error: any) { alert('Không thể thu hồi: ' + (error?.message || 'Lỗi')); }
   };
@@ -192,6 +193,12 @@ export default function GroupChat({ groupId, user, members, fillHeight = false }
                   showSenderName={!msg.senderId || msg.senderId !== userId}
                   onImageClick={(url) => setViewerImage(url)}
                   onRecall={handleRecall}
+                  mentionedNames={(msg.mentionedUserIds || '')
+                    .split(',')
+                    .map(Number)
+                    .filter(Boolean)
+                    .map((mentionedId) => activeMembers.find((member) => member.userId === mentionedId)?.userName)
+                    .filter((name): name is string => Boolean(name))}
                 />
               ))}
             </div>
@@ -201,7 +208,12 @@ export default function GroupChat({ groupId, user, members, fillHeight = false }
       </div>
 
       {/* Composer */}
-      <ChatComposer onSend={handleSend} placeholder="Nhập tin nhắn nhóm..." />
+      <ChatComposer
+        onSend={handleSend}
+        placeholder="Nhập tin nhắn nhóm..."
+        mentionMembers={activeMembers}
+        currentUserId={userId}
+      />
     </div>
 
     {viewerImage && (

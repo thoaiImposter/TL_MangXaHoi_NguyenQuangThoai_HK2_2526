@@ -1,4 +1,5 @@
-import type { AuthPayload, PostComment, PostFeedItem, Post, PostShare, ProfileUpdatePayload, User, Friendship, Message, BlockedUser, NotificationItem, Group, GroupMember, GroupJoinRequest, GroupPost, GroupNotification, PollResults, UserRole } from '../types';
+import type { AuthPayload, AuthSession, PostComment, PostFeedItem, Post, PostShare, ProfileUpdatePayload, User, Friendship, FriendshipStatus, Message, BlockedUser, NotificationItem, Group, GroupMember, GroupJoinRequest, GroupPost, GroupNotification, PollResults } from '../types';
+import { uploadFileDirect, type UploadFolder, type UploadProgress } from './upload';
 
 const BASE_URL = 'http://localhost:8080/api';
 const BACKEND_ORIGIN = 'http://localhost:8080';
@@ -15,6 +16,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Only set Content-Type if not using FormData (which sets its own boundary)
   if (!(init?.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
+  }
+  const token = localStorage.getItem('social_token');
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
   }
   if (init?.headers) {
     Object.assign(headers, init.headers as Record<string, string>);
@@ -40,9 +45,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // Extract error message from payload
     let errorMessage = typeof payload === 'string' && payload ? payload : `Request failed (${response.status})`;
     
-    // If payload is an object, try to extract message property
-    if (typeof payload === 'object' && payload !== null && 'message' in payload) {
-      errorMessage = (payload as { message: string }).message;
+    // Backend controllers use either "message" or "error".
+    if (typeof payload === 'object' && payload !== null) {
+      if ('message' in payload && typeof payload.message === 'string') {
+        errorMessage = payload.message;
+      } else if ('error' in payload && typeof payload.error === 'string') {
+        errorMessage = payload.error;
+      }
     }
     
     throw new Error(errorMessage);
@@ -76,13 +85,13 @@ export function mimeToExtension(mimeType: string): string {
 export const api = {
   // Auth endpoints
   login: (payload: AuthPayload) =>
-    request<User>('/auth/login', {
+    request<AuthSession>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
   // OTP-based registration endpoints
   requestRegistrationOtp: (email: string, role: string = 'student') =>
-    request<{ message: string; expiresIn: number }>('/auth/register/request-otp', {
+    request<{ message: string; expiresIn: number; maxAttempts?: number; resendCooldown?: number }>('/auth/register/request-otp', {
       method: 'POST',
       body: JSON.stringify({ email, role }),
     }),
@@ -104,7 +113,7 @@ export const api = {
     academicTitle?: string;
     otp: string;
   }) =>
-    request<User>('/auth/register', {
+    request<AuthSession>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -122,7 +131,10 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
-  toggleProtection: (userId: number) => request<User>(`/users/${userId}/protection`, { method: 'PATCH' }),
+  setProtection: (userId: number, enabled: boolean) => request<User>(`/users/${userId}/protection`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  }),
   searchUsers: (q: string) => request<User[]>(`/users/search?q=${encodeURIComponent(q)}`),
 
   // Feed endpoints
@@ -144,6 +156,8 @@ export const api = {
     request<void>(`/posts/${postId}?userId=${userId}`, {
       method: 'DELETE',
     }),
+  getPost: (postId: number, viewerId?: number) =>
+    request<PostFeedItem>(`/posts/${postId}${viewerId ? `?viewerId=${viewerId}` : ''}`),
 
   // Post like endpoints (RESTful: /posts/{postId}/likes)
   toggleLike: (postId: number, userId: number) =>
@@ -152,7 +166,8 @@ export const api = {
     }),
 
   // Post comment endpoints (RESTful: /posts/{postId}/comments)
-  getComments: (postId: number) => request<PostComment[]>(`/posts/${postId}/comments`),
+  getComments: (postId: number, viewerId?: number) =>
+    request<PostComment[]>(`/posts/${postId}/comments${viewerId ? `?viewerId=${viewerId}` : ''}`),
   addComment: (postId: number, userId: number, payload: { content: string; media?: string[] }) =>
     request<PostComment>(`/posts/${postId}/comments?userId=${userId}`, {
       method: 'POST',
@@ -193,7 +208,7 @@ export const api = {
   unfriend: (friendshipId: number, userId: number) =>
     request<void>(`/friendships/${friendshipId}?userId=${userId}`, { method: 'DELETE' }),
   getFriendshipStatus: (viewerId: number, targetId: number) =>
-    request<{ status: string }>(`/users/${viewerId}/friendship-status/${targetId}`),
+    request<FriendshipStatus>(`/users/${viewerId}/friendship-status/${targetId}`),
 
   // Message endpoints (RESTful: /users/{userId}/messages)
   sendMessage: (senderId: number, receiverId: number, content: string, mediaUrl?: string) =>
@@ -260,6 +275,8 @@ export const api = {
     request<void>(`/groups/${groupId}/members/${memberId}?adminId=${adminId}`, { method: 'DELETE' }),
 
   // Join Requests
+  getMyPendingGroupJoinRequests: (userId: number) =>
+    request<GroupJoinRequest[]>(`/groups/join-requests/pending?userId=${userId}`),
   getPendingJoinRequests: (groupId: number, adminId: number) =>
     request<GroupJoinRequest[]>(`/groups/${groupId}/join-requests?adminId=${adminId}`),
   approveJoinRequest: (groupId: number, requestId: number, adminId: number) =>
@@ -353,17 +370,8 @@ export const api = {
     request<void>(`/groups/${groupId}/chat/leave?userId=${userId}`, { method: 'POST' }),
 
   // File upload endpoint (multipart form)
-  uploadFile: (file: File, type?: 'image' | 'video' | 'file') => {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (type) {
-      formData.append('type', type);
-    }
-    return request<{ mediaType: string; mediaUrl: string; mediaName: string; mediaSize: number; filename: string }>(`/files/upload`, {
-      method: 'POST',
-      body: formData,
-    });
-  },
+  uploadFile: (file: File, type?: 'image' | 'video' | 'file', folder: UploadFolder = 'posts', onProgress?: UploadProgress) =>
+    uploadFileDirect(file, type, folder, onProgress),
 
   // Poll endpoints
   createPoll: (userId: number, payload: { title: string; content: string; visibility?: string; options: string[]; endDate?: string; allowMultiple?: boolean }) =>

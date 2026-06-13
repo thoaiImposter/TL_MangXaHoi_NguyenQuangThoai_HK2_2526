@@ -8,8 +8,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -19,20 +22,20 @@ public class ShareService {
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
-    private final FriendshipService friendshipService;
     private final NotificationService notificationService;
+    private final PrivacyAccessService privacyAccessService;
 
     public ShareService(PostShareRepository postShareRepository, PostRepository postRepository, 
                        UserRepository userRepository, GroupRepository groupRepository,
-                       GroupMemberRepository groupMemberRepository, FriendshipService friendshipService,
-                       NotificationService notificationService) {
+                       GroupMemberRepository groupMemberRepository,
+                       NotificationService notificationService, PrivacyAccessService privacyAccessService) {
         this.postShareRepository = postShareRepository;
         this.postRepository = postRepository;
         this.userRepository = userRepository;
         this.groupRepository = groupRepository;
         this.groupMemberRepository = groupMemberRepository;
-        this.friendshipService = friendshipService;
         this.notificationService = notificationService;
+        this.privacyAccessService = privacyAccessService;
     }
 
     /**
@@ -47,6 +50,7 @@ public class ShareService {
         // Validate post
         Post originalPost = postRepository.findById(request.getPostId())
             .orElseThrow(() -> new IllegalArgumentException("Post not found"));
+        privacyAccessService.requirePostAccess(originalPost, userId);
 
         // Check if already shared by this user
         if (postShareRepository.existsByOriginalPostIdAndSharedByUserId(request.getPostId(), userId)) {
@@ -57,10 +61,7 @@ public class ShareService {
         String shareContent = request.getShareContent() == null ? "" : request.getShareContent().trim();
 
         // Validate share visibility
-        String shareVisibility = request.getShareVisibility() == null ? "public" : request.getShareVisibility().trim().toLowerCase();
-        if (!List.of("public", "friends", "private").contains(shareVisibility)) {
-            throw new IllegalArgumentException("Invalid share visibility. Must be: public, friends, or private");
-        }
+        String shareVisibility = privacyAccessService.normalizeScope(request.getShareVisibility(), PrivacyAccessService.PUBLIC);
 
         // Create a new Post for the share (like Facebook - share creates a new post)
         Post sharePost = new Post();
@@ -93,6 +94,10 @@ public class ShareService {
             }
 
             share.setSharedToGroup(targetGroup);
+            shareVisibility = targetGroup.getPrivacy();
+            share.setShareVisibility(shareVisibility);
+            savedSharePost.setVisibility(targetGroup.getPrivacy());
+            postRepository.save(savedSharePost);
         }
 
         PostShare savedShare = postShareRepository.save(share);
@@ -109,13 +114,7 @@ public class ShareService {
      * Get shares for a specific post with visibility check
      */
     public List<PostShareResponse> getPostShares(Long postId, Long viewerId, int page, int size) {
-        Pageable pageable = PageRequest.of(page, size);
-        Page<PostShare> sharesPage = postShareRepository.findByOriginalPostId(postId, pageable);
-
-        return sharesPage.getContent().stream()
-            .filter(share -> isShareVisibleToViewer(share, viewerId))
-            .map(share -> toShareResponse(share, viewerId))
-            .collect(Collectors.toList());
+        return collectVisibleShares(page, size, viewerId, pageable -> postShareRepository.findByOriginalPostId(postId, pageable), false);
     }
 
     /**
@@ -135,6 +134,7 @@ public class ShareService {
     /**
      * Delete a share
      */
+    @Transactional
     public void deleteShare(Long shareId, Long userId) {
         PostShare share = postShareRepository.findById(shareId)
             .orElseThrow(() -> new IllegalArgumentException("Share not found"));
@@ -143,7 +143,12 @@ public class ShareService {
             throw new IllegalArgumentException("You can only delete your own shares");
         }
 
+        Post sharedPost = share.getSharedPost();
         postShareRepository.delete(share);
+        postShareRepository.flush();
+        if (sharedPost != null) {
+            postRepository.delete(sharedPost);
+        }
     }
 
     /**
@@ -155,127 +160,34 @@ public class ShareService {
             return getPublicShares(page, size);
         }
 
-        List<Long> friendIds = friendshipService.getFriendIds(viewerId);
-        Pageable pageable = PageRequest.of(page, size);
-
-        // Get shares from friends and public shares
-        Page<PostShare> sharesPage = postShareRepository.findAll(pageable);
-
-        return sharesPage.getContent().stream()
-            .filter(share -> isShareVisibleToViewer(share, viewerId))
-            .map(share -> toShareResponse(share, viewerId))
-            .collect(Collectors.toList());
+        return collectVisibleShares(page, size, viewerId, postShareRepository::findTimelineShares, true);
     }
 
     /**
      * Get shares in a group
      */
     public List<PostShareResponse> getGroupShares(Long groupId, Long viewerId, int page, int size) {
-        // Check if user is a member of the group
-        boolean isMember = groupMemberRepository.findByGroupIdAndUserId(groupId, viewerId)
-            .map(member -> "active".equals(member.getStatus()))
-            .orElse(false);
+        Group group = groupRepository.findById(groupId)
+            .orElseThrow(() -> new IllegalArgumentException("Group not found"));
+        privacyAccessService.requireGroupAccess(group, viewerId);
 
-        if (!isMember) {
-            Group group = groupRepository.findById(groupId)
-                .orElseThrow(() -> new IllegalArgumentException("Group not found"));
-
-            if ("private".equals(group.getPrivacy())) {
-                throw new IllegalArgumentException("You must be a member of this group to view shares");
-            }
-        }
-
-        Pageable pageable = PageRequest.of(page, size);
-        Page<PostShare> sharesPage = postShareRepository.findBySharedToGroupId(groupId, pageable);
-
-        return sharesPage.getContent().stream()
-            .map(share -> toShareResponse(share, viewerId))
-            .collect(Collectors.toList());
+        return collectVisibleShares(page, size, viewerId, pageable -> postShareRepository.findBySharedToGroupId(groupId, pageable), false);
     }
 
     /**
      * Get shares by a specific user (for user profile)
      */
     public List<PostShareResponse> getUserShares(Long userId, Long viewerId, int page, int size) {
-        Pageable pageable = PageRequest.of(page, size);
-        Page<PostShare> sharesPage = postShareRepository.findBySharedByUserId(userId, pageable);
-
-        return sharesPage.getContent().stream()
-            .filter(share -> isShareVisibleToViewer(share, viewerId))
-            .map(share -> toShareResponse(share, viewerId))
-            .collect(Collectors.toList());
+        return collectVisibleShares(page, size, viewerId, pageable -> postShareRepository.findBySharedByUserId(userId, pageable), false);
     }
 
     private List<PostShareResponse> getPublicShares(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size);
-        // This would need a custom query - for now return empty
-        return List.of();
-    }
-
-    /**
-     * Check if a share is visible to a viewer based on multiple scope conditions
-     */
-    private boolean isShareVisibleToViewer(PostShare share, Long viewerId) {
-        if (viewerId == null) {
-            // Anonymous viewers can only see public shares of public posts
-            return "public".equals(share.getShareVisibility()) && 
-                   "public".equals(share.getOriginalPost().getVisibility());
-        }
-
-        // Owner can always see their own share
-        if (share.getSharedBy().getId().equals(viewerId)) {
-            return true;
-        }
-
-        // Check if original post is accessible to viewer
-        if (!isPostAccessibleToViewer(share.getOriginalPost(), viewerId)) {
-            return false;
-        }
-
-        // Check share visibility
-        String shareVisibility = share.getShareVisibility();
-        if ("public".equals(shareVisibility)) {
-            return true;
-        }
-
-        if ("friends".equals(shareVisibility)) {
-            List<Long> friendIds = friendshipService.getFriendIds(viewerId);
-            return friendIds.contains(share.getSharedBy().getId());
-        }
-
-        // Private shares are only visible to the sharer
-        return false;
-    }
-
-    /**
-     * Check if a post is accessible to a viewer
-     */
-    private boolean isPostAccessibleToViewer(Post post, Long viewerId) {
-        // Author can always see their post
-        if (post.getAuthor().getId().equals(viewerId)) {
-            return true;
-        }
-
-        String postVisibility = post.getVisibility();
-        if ("public".equals(postVisibility)) {
-            return true;
-        }
-
-        if ("friends".equals(postVisibility)) {
-            List<Long> friendIds = friendshipService.getFriendIds(viewerId);
-            return friendIds.contains(post.getAuthor().getId());
-        }
-
-        // Private posts are only visible to the author
-        return false;
+        return collectVisibleShares(page, size, null, postShareRepository::findTimelineShares, false);
     }
 
     private PostShareResponse toShareResponse(PostShare share, Long viewerId) {
-        // For shares, the original post is always "available" since we show a preview
-        // The viewer can always see the share if they have permission to see the share
-        boolean isOriginalAvailable = true;
-        
         Post originalPost = share.getOriginalPost();
+        boolean isOriginalAvailable = privacyAccessService.canViewPost(originalPost, viewerId);
         User originalAuthor = originalPost.getAuthor();
         User sharedBy = share.getSharedBy();
         Group sharedToGroup = share.getSharedToGroup();
@@ -284,9 +196,9 @@ public class ShareService {
         return new PostShareResponse(
             share.getId(),
             originalPost.getId(),
-            originalPost.getTitle(),
-            originalPost.getContent(),
-            originalPost.getVisibility(),
+            isOriginalAvailable ? originalPost.getTitle() : null,
+            isOriginalAvailable ? originalPost.getContent() : null,
+            isOriginalAvailable ? originalPost.getVisibility() : null,
             originalAuthor.getId(),
             originalAuthor.getFullName(),
             originalAuthor.getAvatar(),
@@ -301,5 +213,33 @@ public class ShareService {
             share.getCreatedAt(),
             isOriginalAvailable
         );
+    }
+
+    private List<PostShareResponse> collectVisibleShares(
+            int requestedPage,
+            int requestedSize,
+            Long viewerId,
+            Function<Pageable, Page<PostShare>> loader,
+            boolean excludeViewerShares) {
+        int size = Math.max(1, Math.min(requestedSize, 50));
+        int start = Math.max(0, requestedPage) * size;
+        int required = start + size;
+        int scanPage = 0;
+        int scanSize = Math.max(25, size * 2);
+        List<PostShare> visible = new ArrayList<>();
+
+        while (visible.size() < required) {
+            Page<PostShare> batch = loader.apply(PageRequest.of(scanPage, scanSize));
+            batch.getContent().stream()
+                .filter(share -> !excludeViewerShares || viewerId == null || !viewerId.equals(share.getSharedBy().getId()))
+                .filter(share -> privacyAccessService.canViewShare(share, viewerId))
+                .forEach(visible::add);
+            if (!batch.hasNext()) break;
+            scanPage++;
+        }
+        if (start >= visible.size()) return List.of();
+        return visible.subList(start, Math.min(required, visible.size())).stream()
+            .map(share -> toShareResponse(share, viewerId))
+            .collect(Collectors.toList());
     }
 }

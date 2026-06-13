@@ -7,7 +7,7 @@ interface MediaViewerProps {
   onClose?: () => void;
 }
 
-export default function MediaViewer({ media, onClose }: MediaViewerProps) {
+export default function MediaViewer({ media }: MediaViewerProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
 
   if (!media || media.length === 0) return null;
@@ -72,7 +72,7 @@ export default function MediaViewer({ media, onClose }: MediaViewerProps) {
               </div>
             )}
             <a
-              href={resolveMediaUrl(item.mediaUrl) + '/download'}
+              href={resolveMediaUrl(item.mediaUrl)}
               download={item.mediaName}
               style={{
                 display: 'inline-block',

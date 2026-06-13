@@ -18,6 +18,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final Map<Long, WebSocketSession> userSessions = new ConcurrentHashMap<>();
     private final Map<String, Set<Long>> groupChatRooms = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AuthTokenService authTokenService;
+
+    public ChatWebSocketHandler(AuthTokenService authTokenService) {
+        this.authTokenService = authTokenService;
+    }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
@@ -32,6 +37,11 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
             if ("auth".equals(type)) {
                 Long userId = Long.valueOf(payload.get("userId").toString());
+                Long tokenUserId = authTokenService.parseUserId(String.valueOf(payload.get("token")));
+                if (!userId.equals(tokenUserId)) {
+                    session.close(CloseStatus.POLICY_VIOLATION);
+                    return;
+                }
                 userSessions.put(userId, session);
                 session.getAttributes().put("userId", userId);
             } else if ("ping".equals(type)) {

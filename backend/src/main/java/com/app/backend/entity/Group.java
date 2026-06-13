@@ -19,12 +19,10 @@ public class Group {
     @Column(length = 1000)
     private String description;
 
-    @Lob
-    @Column(columnDefinition = "LONGTEXT")
+    @Column(length = 2048)
     private String avatar;
 
-    @Lob
-    @Column(columnDefinition = "LONGTEXT")
+    @Column(length = 2048)
     private String cover;
 
     @Column(nullable = false, length = 20)

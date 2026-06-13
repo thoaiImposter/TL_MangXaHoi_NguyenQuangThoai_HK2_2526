@@ -11,6 +11,7 @@ interface ChatMessageProps {
   onRecall?: (messageId: number) => void;
   /** compact mode for mini chat */
   compact?: boolean;
+  mentionedNames?: string[];
 }
 
 function getMediaType(url: string): 'image' | 'video' | 'file' {
@@ -32,8 +33,9 @@ export default function ChatMessage({
   onContextMenu,
   onRecall,
   compact = false,
+  mentionedNames = [],
 }: ChatMessageProps) {
-  const { id, senderId, senderName, senderAvatar, content, mediaUrl, isRecalled, createdAt, isAllMentioned } = message;
+  const { id, senderName, senderAvatar, content, mediaUrl, isRecalled, createdAt, isAllMentioned } = message;
 
   const formatTime = (s: string) => {
     const d = new Date(s);
@@ -50,6 +52,18 @@ export default function ChatMessage({
   };
 
   const mediaType = mediaUrl ? getMediaType(mediaUrl) : null;
+  const renderContent = () => {
+    if (!content) return null;
+    const labels = [...mentionedNames.map((name) => `@${name}`), ...(isAllMentioned ? ['@mọi người'] : [])]
+      .sort((a, b) => b.length - a.length);
+    if (!labels.length) return content;
+    const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    return content.split(new RegExp(`(${escaped})`, 'gi')).map((part, index) =>
+      labels.some((label) => label.toLocaleLowerCase('vi') === part.toLocaleLowerCase('vi'))
+        ? <mark className="chat-inline-mention" key={`${part}-${index}`}>{part}</mark>
+        : part
+    );
+  };
 
   if (compact) {
     // Mini chat compact mode
@@ -93,7 +107,7 @@ export default function ChatMessage({
                 📎 Tệp đính kèm
               </a>
             )}
-            {content && <div className="mini-chat-bubble-text">{content}</div>}
+            {content && <div className="mini-chat-bubble-text">{renderContent()}</div>}
             <div className="mini-chat-bubble-time">{formatTime(createdAt)}</div>
           </div>
         )}
@@ -150,7 +164,7 @@ export default function ChatMessage({
                   📎 Tệp đính kèm
                 </a>
               )}
-              {content && <div className="chat-bubble-text">{content}</div>}
+              {content && <div className="chat-bubble-text">{renderContent()}</div>}
             </>
           )}
         </div>

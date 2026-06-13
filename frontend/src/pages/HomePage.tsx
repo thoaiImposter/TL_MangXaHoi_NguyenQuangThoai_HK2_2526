@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import PostComposer from '../components/PostComposer';
 import PostComposerBar from '../components/PostComposerBar';
+import PostComposerModal from '../components/PostComposerModal';
 import PostCard from '../components/PostCard';
+import ShareCard from '../components/ShareCard';
 import PollCreator from '../components/PollCreator';
 import { api } from '../lib/api';
-import type { Friendship, PostFeedItem, User } from '../types';
+import { uploadFileUrl } from '../lib/upload';
+import type { Friendship, PostFeedItem, PostShare, User } from '../types';
 
 type HomePageProps = {
   user: User;
@@ -15,6 +17,7 @@ type Draft = { content: string; media: string[] };
 
 function HomePage({ user }: HomePageProps) {
   const [feed, setFeed] = useState<PostFeedItem[]>([]);
+  const [shares, setShares] = useState<PostShare[]>([]);
   const [commentDrafts, setCommentDrafts] = useState<Record<number, Draft>>({});
   const [replyDrafts, setReplyDrafts] = useState<Record<number, Draft>>({});
   const [replyTarget, setReplyTarget] = useState<Record<number, number | null>>({});
@@ -34,24 +37,27 @@ function HomePage({ user }: HomePageProps) {
   const [loadingMore, setLoadingMore] = useState(false);
 
   const visibleFeed = useMemo(() => feed.filter((post) => post.authorId !== user.id), [feed, user.id]);
+  const timeline = useMemo(() => [
+    ...visibleFeed.map((post) => ({ kind: 'post' as const, createdAt: post.createdAt, post })),
+    ...shares.filter((share) => share.sharedByUserId !== user.id).map((share) => ({ kind: 'share' as const, createdAt: share.createdAt, share })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [visibleFeed, shares, user.id]);
   const myPosts = useMemo(() => feed.filter((post) => post.authorId === user.id), [feed, user.id]);
 
-  const fileToBase64 = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
+  const fileToBase64 = (file: File) => uploadFileUrl(file, 'comments');
 
   const loadFeed = async (page = 0, append = false) => {
     if (page === 0) setLoading(true);
     else setLoadingMore(true);
     try {
-      const [data, pending] = await Promise.all([api.getFeed(user.id, page, 10), api.getPendingFriendRequests(user.id)]);
+      const [data, shareData, pending] = await Promise.all([
+        api.getFeed(user.id, page, 10),
+        api.getSharesForFeed(user.id, page, 10),
+        api.getPendingFriendRequests(user.id),
+      ]);
       setFeed((current) => (append ? [...current, ...data] : data));
+      setShares((current) => (append ? [...current, ...shareData] : shareData));
       setPendingRequests(pending);
-      if (data.length < 10) setHasMore(false);
+      if (data.length < 10 && shareData.length < 10) setHasMore(false);
       else setHasMore(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không tải được bảng tin');
@@ -134,8 +140,8 @@ function HomePage({ user }: HomePageProps) {
 
   const submitComment = async (postId: number) => {
     const draft = commentDrafts[postId];
-    const content = draft?.content.trim();
-    if (!content) return;
+    const content = draft?.content.trim() ?? '';
+    if (!content && !draft?.media.length) return;
     try {
       await api.addComment(postId, user.id, { content, media: draft.media });
       setCommentDrafts((current) => ({ ...current, [postId]: { content: '', media: [] } }));
@@ -147,8 +153,8 @@ function HomePage({ user }: HomePageProps) {
 
   const submitReply = async (postId: number, commentId: number) => {
     const draft = replyDrafts[commentId];
-    const content = draft?.content.trim();
-    if (!content) return;
+    const content = draft?.content.trim() ?? '';
+    if (!content && !draft?.media.length) return;
     try {
       await api.replyComment(postId, commentId, user.id, { content, media: draft.media });
       setReplyDrafts((current) => ({ ...current, [commentId]: { content: '', media: [] } }));
@@ -193,19 +199,19 @@ function HomePage({ user }: HomePageProps) {
 
   const onPickCommentMedia = async (postId: number, files: FileList | null) => {
     if (!files?.length) return;
-    const picked = await Promise.all(Array.from(files).slice(0, 10).map((file) => fileToBase64(file)));
+    const picked = await fileToBase64(files[0]);
     setCommentDrafts((current) => ({
       ...current,
-      [postId]: { content: current[postId]?.content ?? '', media: [...(current[postId]?.media ?? []), ...picked].slice(0, 10) },
+      [postId]: { content: current[postId]?.content ?? '', media: [picked] },
     }));
   };
 
   const onPickReplyMedia = async (commentId: number, files: FileList | null) => {
     if (!files?.length) return;
-    const picked = await Promise.all(Array.from(files).slice(0, 10).map((file) => fileToBase64(file)));
+    const picked = await fileToBase64(files[0]);
     setReplyDrafts((current) => ({
       ...current,
-      [commentId]: { content: current[commentId]?.content ?? '', media: [...(current[commentId]?.media ?? []), ...picked].slice(0, 10) },
+      [commentId]: { content: current[commentId]?.content ?? '', media: [picked] },
     }));
   };
 
@@ -262,13 +268,13 @@ function HomePage({ user }: HomePageProps) {
                   <div className="flex gap-sm">
                     <button
                       className="btn btn-primary btn-sm"
-                      onClick={() => api.acceptFriendRequest(req.id, user.id).then(loadFeed).catch((err) => setError(err instanceof Error ? err.message : 'Lỗi'))}
+                      onClick={() => api.acceptFriendRequest(req.id, user.id).then(() => loadFeed()).catch((err) => setError(err instanceof Error ? err.message : 'Lỗi'))}
                     >
                       Chấp nhận
                     </button>
                     <button
                       className="btn btn-secondary btn-sm"
-                      onClick={() => api.rejectOrCancelFriendRequest(req.id, user.id).then(loadFeed).catch((err) => setError(err instanceof Error ? err.message : 'Lỗi'))}
+                      onClick={() => api.rejectOrCancelFriendRequest(req.id, user.id).then(() => loadFeed()).catch((err) => setError(err instanceof Error ? err.message : 'Lỗi'))}
                     >
                       Từ chối
                     </button>
@@ -292,14 +298,16 @@ function HomePage({ user }: HomePageProps) {
         </div>
 
         <section className="feed">
-          {visibleFeed.map((post) => (
+          {timeline.map((entry) => entry.kind === 'share' ? (
+            <ShareCard key={`share-${entry.share.id}`} share={entry.share} user={user} />
+          ) : (
             <PostCard
-              key={post.id}
-              post={post}
+              key={`post-${entry.post.id}`}
+              post={entry.post}
               user={user}
-              expandedPost={expandedPosts[post.id] ?? false}
-              expandedComments={expandedComments[post.id] ?? false}
-              commentDraft={commentDrafts[post.id]}
+              expandedPost={expandedPosts[entry.post.id] ?? false}
+              expandedComments={expandedComments[entry.post.id] ?? false}
+              commentDraft={commentDrafts[entry.post.id]}
               replyDrafts={replyDrafts}
               replyTarget={replyTarget}
               commentLikeState={commentLikeState}
@@ -321,7 +329,7 @@ function HomePage({ user }: HomePageProps) {
               onDeleteComment={deleteComment}
             />
           ))}
-          {hasMore && visibleFeed.length > 0 && (
+          {hasMore && timeline.length > 0 && (
             <div style={{ textAlign: 'center', marginTop: 'var(--spacing-lg)' }}>
               <button className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}>
                 {loadingMore ? (
@@ -335,7 +343,7 @@ function HomePage({ user }: HomePageProps) {
               </button>
             </div>
           )}
-          {visibleFeed.length === 0 && !loading && (
+          {timeline.length === 0 && !loading && (
             <div className="empty-state card">
               <div className="empty-state-icon">📭</div>
               <h3 className="empty-state-title">Chưa có bài viết nào</h3>
@@ -405,36 +413,16 @@ function HomePage({ user }: HomePageProps) {
       )}
 
       {composerOpen && (
-        <div className="modal-backdrop" onClick={() => !loading && resetComposer()}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <p style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  {editingData ? 'Chỉnh sửa bài viết' : 'Tạo bài viết'}
-                </p>
-                <h2 className="modal-title">Bạn đang nghĩ gì?</h2>
-              </div>
-              <button className="modal-close" onClick={() => resetComposer()}>×</button>
-            </div>
-
-            <div className="modal-body">
-              <PostComposer
-                key={editingData?.id || 'new'}
-                user={user}
-                mode="regular"
-                showVisibility={!editingData}
-                editingData={editingData}
-                onSuccess={() => handleComposerSuccess(editingData ? 'Đã cập nhật bài viết.' : 'Đã đăng bài viết.')}
-                onClose={() => resetComposer()}
-              />
-            </div>
-
-            <div className="modal-footer">
-              {notice && <div className="alert alert-success" style={{ marginBottom: 0 }}>{notice}</div>}
-              {error && <div className="alert alert-error" style={{ marginBottom: 0 }}>{error}</div>}
-            </div>
-          </div>
-        </div>
+        <PostComposerModal
+          user={user}
+          editingData={editingData}
+          showVisibility={!editingData}
+          successMessage={notice}
+          errorMessage={error}
+          closeDisabled={loading}
+          onClose={resetComposer}
+          onSuccess={() => handleComposerSuccess(editingData ? 'Đã cập nhật bài viết.' : 'Đã đăng bài viết.')}
+        />
       )}
 
       {showPollCreator && (

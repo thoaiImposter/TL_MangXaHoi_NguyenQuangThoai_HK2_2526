@@ -25,8 +25,10 @@ public class GroupService {
     private final PostRepository postRepository;
     private final PostLikeRepository postLikeRepository;
     private final PostCommentRepository postCommentRepository;
+    private final CommentMediaRepository commentMediaRepository;
     private final PostMediaRepository postMediaRepository;
     private final PollOptionRepository pollOptionRepository;
+    private final PrivacyAccessService privacyAccessService;
 
     public GroupService(GroupRepository groupRepository,
                        GroupMemberRepository groupMemberRepository,
@@ -38,8 +40,10 @@ public class GroupService {
                        PostRepository postRepository,
                        PostLikeRepository postLikeRepository,
                        PostCommentRepository postCommentRepository,
+                       CommentMediaRepository commentMediaRepository,
                        PostMediaRepository postMediaRepository,
-                       PollOptionRepository pollOptionRepository) {
+                       PollOptionRepository pollOptionRepository,
+                       PrivacyAccessService privacyAccessService) {
         this.groupRepository = groupRepository;
         this.groupMemberRepository = groupMemberRepository;
         this.groupPostRepository = groupPostRepository;
@@ -50,8 +54,10 @@ public class GroupService {
         this.postRepository = postRepository;
         this.postLikeRepository = postLikeRepository;
         this.postCommentRepository = postCommentRepository;
+        this.commentMediaRepository = commentMediaRepository;
         this.postMediaRepository = postMediaRepository;
         this.pollOptionRepository = pollOptionRepository;
+        this.privacyAccessService = privacyAccessService;
     }
 
     // ==================== Group CRUD Operations ====================
@@ -75,7 +81,7 @@ public class GroupService {
         group.setDescription(request.description() != null ? request.description().trim() : "");
         group.setAvatar(request.avatar());
         group.setCover(request.cover());
-        group.setPrivacy(request.privacy() != null ? request.privacy().toLowerCase() : "public");
+        group.setPrivacy(privacyAccessService.normalizeGroupPrivacy(request.privacy(), PrivacyAccessService.PUBLIC));
         group.setApprovalRequired(request.approvalRequired() != null ? request.approvalRequired() : false);
         group.setCreator(creator);
 
@@ -123,7 +129,7 @@ public class GroupService {
             group.setCover(request.cover());
         }
         if (request.privacy() != null) {
-            group.setPrivacy(request.privacy().toLowerCase());
+            group.setPrivacy(privacyAccessService.normalizeGroupPrivacy(request.privacy(), group.getPrivacy()));
         }
         if (request.approvalRequired() != null) {
             group.setApprovalRequired(request.approvalRequired());
@@ -191,9 +197,15 @@ public class GroupService {
                 throw new IllegalArgumentException("You already have a pending request to join this group");
             }
 
-            GroupJoinRequest joinRequest = new GroupJoinRequest();
-            joinRequest.setGroup(group);
             User user = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("User not found"));
+            GroupJoinRequest joinRequest = groupJoinRequestRepository
+                .findByGroupIdAndUserId(groupId, userId)
+                .orElseGet(() -> {
+                    GroupJoinRequest newRequest = new GroupJoinRequest();
+                    newRequest.setGroup(group);
+                    newRequest.setUser(user);
+                    return newRequest;
+                });
             joinRequest.setUser(user);
             joinRequest.setStatus("pending");
 
@@ -221,6 +233,7 @@ public class GroupService {
         return toGroupMemberResponse(member);
     }
 
+    @Transactional
     public GroupMemberResponse approveJoinRequest(Long groupId, Long requestId, Long adminId) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
@@ -239,14 +252,22 @@ public class GroupService {
         if (!joinRequest.getGroup().getId().equals(groupId)) {
             throw new IllegalArgumentException("Join request does not belong to this group");
         }
+        if (!"pending".equals(joinRequest.getStatus())) {
+            throw new IllegalArgumentException("Join request has already been processed");
+        }
 
         joinRequest.setStatus("approved");
         groupJoinRequestRepository.save(joinRequest);
 
-        // Add user as member
-        GroupMember member = new GroupMember();
-        member.setGroup(group);
-        member.setUser(joinRequest.getUser());
+        // Reactivate an old membership when possible so the group/user unique key is preserved.
+        GroupMember member = groupMemberRepository
+            .findByGroupIdAndUserId(groupId, joinRequest.getUser().getId())
+            .orElseGet(() -> {
+                GroupMember newMember = new GroupMember();
+                newMember.setGroup(group);
+                newMember.setUser(joinRequest.getUser());
+                return newMember;
+            });
         member.setRole("member");
         member.setStatus("active");
         groupMemberRepository.save(member);
@@ -258,6 +279,7 @@ public class GroupService {
         return toGroupMemberResponse(member);
     }
 
+    @Transactional
     public void rejectJoinRequest(Long groupId, Long requestId, Long adminId) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
@@ -271,6 +293,12 @@ public class GroupService {
 
         GroupJoinRequest joinRequest = groupJoinRequestRepository.findById(requestId)
             .orElseThrow(() -> new IllegalArgumentException("Join request not found"));
+        if (!joinRequest.getGroup().getId().equals(groupId)) {
+            throw new IllegalArgumentException("Join request does not belong to this group");
+        }
+        if (!"pending".equals(joinRequest.getStatus())) {
+            throw new IllegalArgumentException("Join request has already been processed");
+        }
 
         joinRequest.setStatus("rejected");
         groupJoinRequestRepository.save(joinRequest);
@@ -664,6 +692,7 @@ public class GroupService {
     public List<GroupPostResponse> getGroupPosts(Long groupId, Long viewerId, String filter, int page, int size) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
+        privacyAccessService.requireGroupAccess(group, viewerId);
 
         Pageable pageable = PageRequest.of(page, size);
         Page<GroupPost> postPage;
@@ -677,18 +706,7 @@ public class GroupService {
             }
             postPage = groupPostRepository.findPendingPosts(groupId, pageable);
         } else {
-            // Check if viewer has access
-            boolean hasAccess = false;
-            if (viewerId != null) {
-                if (groupMemberRepository.existsByGroupIdAndUserIdAndStatus(groupId, viewerId, "active")) {
-                    hasAccess = true;
-                }
-            }
-            if ("public".equals(group.getPrivacy()) || hasAccess) {
-                postPage = groupPostRepository.findApprovedPosts(groupId, pageable);
-            } else {
-                throw new IllegalArgumentException("You do not have access to this group's posts");
-            }
+            postPage = groupPostRepository.findApprovedPosts(groupId, pageable);
         }
 
         return postPage.getContent().stream()
@@ -781,6 +799,7 @@ public class GroupService {
     public PostLikeResponse toggleLikeOnGroupPost(Long postId, Long userId) {
         Post post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("Post not found"));
+        privacyAccessService.requirePostAccess(post, userId);
         User user = userRepository.findById(userId)
             .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
@@ -801,19 +820,29 @@ public class GroupService {
     public PostCommentResponse addCommentToGroupPost(Long postId, Long userId, PostCommentRequest request) {
         Post post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("Post not found"));
+        privacyAccessService.requirePostAccess(post, userId);
         User user = userRepository.findById(userId)
             .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        String content = request.getContent() == null ? "" : request.getContent().trim();
+        if (content.isEmpty() && (request.getMedia() == null || request.getMedia().isEmpty())) {
+            throw new IllegalArgumentException("Bình luận cần có nội dung hoặc ảnh đính kèm");
+        }
 
         PostComment comment = new PostComment();
         comment.setPost(post);
         comment.setAuthor(user);
-        comment.setContent(request.getContent().trim());
+        comment.setContent(content);
         if (request.getParentCommentId() != null) {
             PostComment parent = postCommentRepository.findById(request.getParentCommentId())
                 .orElseThrow(() -> new IllegalArgumentException("Parent comment not found"));
+            if (!parent.getPost().getId().equals(postId)) {
+                throw new IllegalArgumentException("Bình luận trả lời không thuộc bài viết này");
+            }
             comment.setParentComment(parent);
         }
         PostComment saved = postCommentRepository.save(comment);
+        saveCommentMedia(saved, request.getMedia());
         return toCommentResponse(saved, null);
     }
 
@@ -863,6 +892,12 @@ public class GroupService {
         }
 
         return groupJoinRequestRepository.findPendingRequests(groupId).stream()
+            .map(this::toGroupJoinRequestResponse)
+            .toList();
+    }
+
+    public List<GroupJoinRequestResponse> getPendingJoinRequestsByUser(Long userId) {
+        return groupJoinRequestRepository.findByUserIdAndStatus(userId, "pending").stream()
             .map(this::toGroupJoinRequestResponse)
             .toList();
     }
@@ -927,8 +962,8 @@ public class GroupService {
             .map(m -> new PostMediaResponse(m.getId(), m.getMediaType(), m.getMediaUrl(), m.getMediaName(), m.getMediaSize(), m.getMediaOrder()))
             .toList();
 
-        // Get comments (top-level only)
-        List<PostComment> commentList = postCommentRepository.findByPostIdAndParentCommentIdIsNullOrderByCreatedAtAsc(post.getId());
+        // Return the full tree so replies and their multimedia are visible.
+        List<PostComment> commentList = postCommentRepository.findByPostIdOrderByCreatedAtAsc(post.getId());
         List<PostCommentResponse> comments = commentList.stream()
             .map(c -> toCommentResponse(c, viewerId))
             .toList();
@@ -1055,6 +1090,20 @@ public class GroupService {
         return "file";
     }
 
+    private void saveCommentMedia(PostComment comment, List<String> media) {
+        if (media == null || media.isEmpty()) return;
+        for (int i = 0; i < Math.min(media.size(), 1); i++) {
+            String url = media.get(i);
+            if (url == null || url.isBlank()) continue;
+            CommentMedia item = new CommentMedia();
+            item.setComment(comment);
+            item.setMediaUrl(url);
+            item.setMediaType(detectMediaType(url));
+            item.setMediaOrder(i);
+            commentMediaRepository.save(item);
+        }
+    }
+
     private void createGroupNotification(Long userId, Long groupId, String type, String message, String targetType, Long targetId) {
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) return;
@@ -1083,7 +1132,9 @@ public class GroupService {
             comment.getContent(),
             comment.getCreatedAt(),
             comment.getParentComment() != null ? comment.getParentComment().getId() : null,
-            new ArrayList<>(), // Comment media - simplified
+            commentMediaRepository.findByCommentIdOrderByMediaOrderAsc(comment.getId()).stream()
+                .map(media -> new CommentMediaResponse(media.getId(), media.getMediaType(), media.getMediaUrl(), media.getMediaName(), media.getMediaOrder()))
+                .toList(),
             0L, // Like count - simplified
             false // Liked by me - simplified
         );

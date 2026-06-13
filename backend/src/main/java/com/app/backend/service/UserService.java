@@ -17,6 +17,8 @@ import java.util.regex.Pattern;
 @Service
 public class UserService {
 
+    private static final Pattern STUDENT_EMAIL_PATTERN = Pattern.compile("^\\d{8}@st\\.hcmuaf\\.edu\\.vn$");
+
     private final UserRepository userRepository;
     private final FriendshipService friendshipService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -86,18 +88,7 @@ public class UserService {
             throw new IllegalArgumentException("Role không hợp lệ. Chỉ chấp nhận: student, advisor, faculty_union, school_union");
         }
 
-        // Validate email based on role
-        if ("student".equals(role)) {
-            Pattern emailPattern = Pattern.compile("^\\d{8}@st\\.hcmuaf\\.edu\\.vn$");
-            if (!emailPattern.matcher(email).matches()) {
-                throw new IllegalArgumentException("Email sinh viên phải có dạng 8 số + @st.hcmuaf.edu.vn");
-            }
-        } else {
-            // Non-student roles: just validate it's a valid email ending with @hcmuaf.edu.vn
-            if (!email.endsWith("@hcmuaf.edu.vn")) {
-                throw new IllegalArgumentException("Email phải có đuôi @hcmuaf.edu.vn");
-            }
-        }
+        validateRegistrationEmail(email, role);
 
         // Validate password: uppercase, lowercase, number, special character
         String password = request.getPassword();
@@ -122,7 +113,10 @@ public class UserService {
         }
 
         // Validate role-specific required fields
-        if ("advisor".equals(role)) {
+        if ("student".equals(role)) {
+            requireValue(request.getFaculty(), "Sinh viên phải có khoa");
+            requireValue(request.getClassName(), "Sinh viên phải có lớp");
+        } else if ("advisor".equals(role)) {
             if (request.getAcademicTitle() == null || request.getAcademicTitle().isBlank()) {
                 throw new IllegalArgumentException("Cố vấn học tập phải có học vị");
             }
@@ -142,10 +136,8 @@ public class UserService {
         user.setRole(role);
         user.setAvatar(request.getAvatar());
         user.setBio(request.getBio());
-        user.setFaculty(request.getFaculty());
-        user.setClassName(request.getClassName());
-        user.setAcademicYear(request.getAcademicYear());
-        user.setAcademicTitle(request.getAcademicTitle());
+        applyRoleProfileFields(user, role, request.getFaculty(), request.getClassName(),
+            request.getAcademicYear(), request.getAcademicTitle());
         User saved = userRepository.save(user);
         return toResponse(saved);
     }
@@ -180,7 +172,65 @@ public class UserService {
         if (request.getAvatar() != null) user.setAvatar(request.getAvatar().trim());
         if (request.getCover() != null) user.setCover(request.getCover().trim());
         if (request.getBio() != null) user.setBio(request.getBio().trim());
+        applyRoleProfileFields(user, user.getRole(), request.getFaculty(), request.getClassName(),
+            request.getAcademicYear(), request.getAcademicTitle());
         return toResponse(userRepository.save(user));
+    }
+
+    public void validateRegistrationEmail(String rawEmail, String role) {
+        String email = rawEmail == null ? "" : rawEmail.trim().toLowerCase();
+        if (role == null || !role.matches("^(student|advisor|faculty_union|school_union)$")) {
+            throw new IllegalArgumentException("Role không hợp lệ");
+        }
+        if ("student".equals(role)) {
+            if (!STUDENT_EMAIL_PATTERN.matcher(email).matches()) {
+                throw new IllegalArgumentException("Email sinh viên phải có dạng 8 số + @st.hcmuaf.edu.vn");
+            }
+            return;
+        }
+        if (!email.matches("^[^\\s@]+@hcmuaf\\.edu\\.vn$")) {
+            throw new IllegalArgumentException("Email phải có đuôi @hcmuaf.edu.vn");
+        }
+    }
+
+    private void applyRoleProfileFields(User user, String role, String faculty, String className,
+                                        String academicYear, String academicTitle) {
+        if ("student".equals(role)) {
+            if (faculty != null) user.setFaculty(clean(faculty));
+            if (className != null) user.setClassName(clean(className));
+            if (academicYear != null) user.setAcademicYear(clean(academicYear));
+            user.setAcademicTitle(null);
+            return;
+        }
+        if ("advisor".equals(role)) {
+            if (faculty != null) user.setFaculty(clean(faculty));
+            if (academicTitle != null) user.setAcademicTitle(clean(academicTitle));
+            user.setClassName(null);
+            user.setAcademicYear(null);
+            return;
+        }
+        if ("faculty_union".equals(role)) {
+            if (faculty != null) user.setFaculty(clean(faculty));
+            user.setClassName(null);
+            user.setAcademicYear(null);
+            user.setAcademicTitle(null);
+            return;
+        }
+        user.setFaculty(null);
+        user.setClassName(null);
+        user.setAcademicYear(null);
+        user.setAcademicTitle(null);
+    }
+
+    private String clean(String value) {
+        String cleaned = value.trim();
+        return cleaned.isEmpty() ? null : cleaned;
+    }
+
+    private void requireValue(String value, String message) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(message);
+        }
     }
 
     @Transactional
@@ -197,9 +247,9 @@ public class UserService {
     }
 
     @Transactional
-    public UserResponse toggleAccountProtection(Long userId) {
+    public UserResponse setAccountProtection(Long userId, Boolean enabled) {
         User user = findUser(userId);
-        user.setAccountProtection(!Boolean.TRUE.equals(user.getAccountProtection()));
+        user.setAccountProtection(Boolean.TRUE.equals(enabled));
         return toResponse(userRepository.save(user));
     }
 

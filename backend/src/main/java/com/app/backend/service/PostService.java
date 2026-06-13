@@ -9,6 +9,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.function.Function;
 
 @Service
 public class PostService {
@@ -22,8 +24,9 @@ public class PostService {
     private final PostShareRepository postShareRepository;
     private final FriendshipService friendshipService;
     private final NotificationService notificationService;
+    private final PrivacyAccessService privacyAccessService;
 
-    public PostService(PostRepository postRepository, UserRepository userRepository, PostLikeRepository postLikeRepository, PostCommentRepository postCommentRepository, PostMediaRepository postMediaRepository, CommentMediaRepository commentMediaRepository, CommentLikeRepository commentLikeRepository, PostShareRepository postShareRepository, FriendshipService friendshipService, NotificationService notificationService) {
+    public PostService(PostRepository postRepository, UserRepository userRepository, PostLikeRepository postLikeRepository, PostCommentRepository postCommentRepository, PostMediaRepository postMediaRepository, CommentMediaRepository commentMediaRepository, CommentLikeRepository commentLikeRepository, PostShareRepository postShareRepository, FriendshipService friendshipService, NotificationService notificationService, PrivacyAccessService privacyAccessService) {
         this.postRepository = postRepository;
         this.userRepository = userRepository;
         this.postLikeRepository = postLikeRepository;
@@ -34,26 +37,48 @@ public class PostService {
         this.postShareRepository = postShareRepository;
         this.friendshipService = friendshipService;
         this.notificationService = notificationService;
+        this.privacyAccessService = privacyAccessService;
     }
 
     public List<PostFeedResponse> getFeed(Long viewerId, int page, int size) {
-        List<Long> friendIds = viewerId != null ? friendshipService.getFriendIds(viewerId) : List.of();
-        Pageable pageable = PageRequest.of(page, size);
-        Page<Post> postPage = postRepository.findAllByOrderByCreatedAtDesc(pageable);
-        return postPage.getContent().stream()
-            .filter(post -> isPostVisible(post, viewerId, friendIds))
-            .map(post -> toFeedResponse(post, viewerId))
-            .toList();
+        return collectVisiblePosts(page, size, viewerId, postRepository::findTimelineCandidates, true);
     }
 
     public List<PostFeedResponse> getPostsByUser(Long userId, Long viewerId, int page, int size, boolean personalOnly) {
-        List<Long> friendIds = viewerId != null ? friendshipService.getFriendIds(viewerId) : List.of();
-        Pageable pageable = PageRequest.of(page, size);
-        Page<Post> postPage = personalOnly
-            ? postRepository.findPersonalPostsByAuthorId(userId, pageable)
-            : postRepository.findByAuthorIdOrderByCreatedAtDesc(userId, pageable);
-        return postPage.getContent().stream()
-            .filter(post -> isPostVisible(post, viewerId, friendIds))
+        User owner = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("User not found"));
+        if (!privacyAccessService.canViewProfilePosts(owner, viewerId)) {
+            return List.of();
+        }
+        Function<Pageable, Page<Post>> loader = personalOnly
+            ? pageable -> postRepository.findPersonalPostsByAuthorId(userId, pageable)
+            : pageable -> postRepository.findByAuthorIdOrderByCreatedAtDesc(userId, pageable);
+        return collectVisiblePosts(page, size, viewerId, loader, false);
+    }
+
+    private List<PostFeedResponse> collectVisiblePosts(
+            int requestedPage,
+            int requestedSize,
+            Long viewerId,
+            Function<Pageable, Page<Post>> loader,
+            boolean excludeViewerPosts) {
+        int size = Math.max(1, Math.min(requestedSize, 50));
+        int start = Math.max(0, requestedPage) * size;
+        int required = start + size;
+        int scanPage = 0;
+        int scanSize = Math.max(25, size * 2);
+        List<Post> visible = new ArrayList<>();
+
+        while (visible.size() < required) {
+            Page<Post> batch = loader.apply(PageRequest.of(scanPage, scanSize));
+            batch.getContent().stream()
+                .filter(post -> !excludeViewerPosts || viewerId == null || !viewerId.equals(post.getAuthor().getId()))
+                .filter(post -> privacyAccessService.canViewPost(post, viewerId))
+                .forEach(visible::add);
+            if (!batch.hasNext()) break;
+            scanPage++;
+        }
+        if (start >= visible.size()) return List.of();
+        return visible.subList(start, Math.min(required, visible.size())).stream()
             .map(post -> toFeedResponse(post, viewerId))
             .toList();
     }
@@ -67,13 +92,15 @@ public class PostService {
         Post post = new Post();
         post.setTitle("Bài viết");
         post.setContent(content);
-        post.setVisibility(request.getVisibility() == null ? "public" : request.getVisibility().trim().toLowerCase());
+        post.setVisibility(privacyAccessService.normalizeScope(request.getVisibility(), PrivacyAccessService.PUBLIC));
         post.setAuthor(author);
         Post saved = postRepository.save(post);
         saveMedia(saved, request.getMedia());
-        List<Long> friendIds = friendshipService.getFriendIds(userId);
-        for (Long friendId : friendIds) {
-            notificationService.createNewPostNotification(userId, saved.getId(), friendId);
+        if (!PrivacyAccessService.PRIVATE.equals(saved.getVisibility())) {
+            List<Long> friendIds = friendshipService.getFriendIds(userId);
+            for (Long friendId : friendIds) {
+                notificationService.createNewPostNotification(userId, saved.getId(), friendId);
+            }
         }
         return toResponse(saved);
     }
@@ -83,8 +110,12 @@ public class PostService {
         if (!post.getAuthor().getId().equals(userId)) {
             throw new IllegalArgumentException("You can only edit your own posts");
         }
-        post.setContent(request.getContent().trim());
-        post.setVisibility(request.getVisibility() == null ? post.getVisibility() : request.getVisibility().trim().toLowerCase());
+        String content = request.getContent() == null ? "" : request.getContent().trim();
+        if (content.isEmpty() && (request.getMedia() == null || request.getMedia().isEmpty())) {
+            throw new IllegalArgumentException("Bài viết cần có nội dung hoặc tệp đính kèm");
+        }
+        post.setContent(content);
+        post.setVisibility(privacyAccessService.normalizeScope(request.getVisibility(), post.getVisibility()));
         Post saved = postRepository.save(post);
         postMediaRepository.deleteAll(postMediaRepository.findByPostIdOrderByMediaOrderAsc(postId));
         saveMedia(saved, request.getMedia());
@@ -93,6 +124,7 @@ public class PostService {
 
     public void deletePost(Long postId, Long userId) {
         Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
+        privacyAccessService.requirePostAccess(post, userId);
         if (!post.getAuthor().getId().equals(userId)) {
             throw new IllegalArgumentException("You can only delete your own posts");
         }
@@ -101,6 +133,7 @@ public class PostService {
 
     public PostLikeResponse toggleLike(Long postId, Long userId) {
         Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
+        privacyAccessService.requirePostAccess(post, userId);
         User user = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("User not found"));
         return postLikeRepository.findByPostIdAndUserId(postId, userId)
             .map(existing -> {
@@ -119,14 +152,22 @@ public class PostService {
 
     public PostCommentResponse addComment(Long postId, Long userId, PostCommentRequest request) {
         Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
+        privacyAccessService.requirePostAccess(post, userId);
         User user = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("User not found"));
+        String content = request.getContent() == null ? "" : request.getContent().trim();
+        if (content.isEmpty() && (request.getMedia() == null || request.getMedia().isEmpty())) {
+            throw new IllegalArgumentException("Bình luận cần có nội dung hoặc ảnh đính kèm");
+        }
         PostComment comment = new PostComment();
         comment.setPost(post);
         comment.setAuthor(user);
-        comment.setContent(request.getContent().trim());
+        comment.setContent(content);
         if (request.getParentCommentId() != null) {
             PostComment parent = postCommentRepository.findById(request.getParentCommentId())
                 .orElseThrow(() -> new IllegalArgumentException("Parent comment not found"));
+            if (!parent.getPost().getId().equals(postId)) {
+                throw new IllegalArgumentException("Bình luận trả lời không thuộc bài viết này");
+            }
             comment.setParentComment(parent);
         }
         PostComment saved = postCommentRepository.save(comment);
@@ -141,7 +182,11 @@ public class PostService {
         if (!comment.getAuthor().getId().equals(userId)) {
             throw new IllegalArgumentException("You can only edit your own comments");
         }
-        comment.setContent(content.trim());
+        String normalizedContent = content == null ? "" : content.trim();
+        if (normalizedContent.isEmpty()) {
+            throw new IllegalArgumentException("Nội dung bình luận không được để trống");
+        }
+        comment.setContent(normalizedContent);
         PostComment saved = postCommentRepository.save(comment);
         return toCommentResponse(saved, null);
     }
@@ -155,12 +200,15 @@ public class PostService {
         postCommentRepository.delete(comment);
     }
 
-    public List<PostCommentResponse> getComments(Long postId) {
-        return postCommentRepository.findByPostIdOrderByCreatedAtAsc(postId).stream().map(comment -> toCommentResponse(comment, null)).toList();
+    public List<PostCommentResponse> getComments(Long postId, Long viewerId) {
+        Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
+        privacyAccessService.requirePostAccess(post, viewerId);
+        return postCommentRepository.findByPostIdOrderByCreatedAtAsc(postId).stream().map(comment -> toCommentResponse(comment, viewerId)).toList();
     }
 
     public CommentLikeResponse toggleCommentLike(Long commentId, Long userId) {
-        postCommentRepository.findById(commentId).orElseThrow(() -> new IllegalArgumentException("Comment not found"));
+        PostComment comment = postCommentRepository.findById(commentId).orElseThrow(() -> new IllegalArgumentException("Comment not found"));
+        privacyAccessService.requirePostAccess(comment.getPost(), userId);
         User user = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("User not found"));
         return commentLikeRepository.findByCommentIdAndUserId(commentId, userId)
             .map(existing -> {
@@ -243,30 +291,22 @@ public class PostService {
 
     private void saveCommentMedia(PostComment comment, List<String> media) {
         if (media == null || media.isEmpty()) return;
-        for (int i = 0; i < media.size(); i++) {
+        for (int i = 0; i < Math.min(media.size(), 1); i++) {
             String item = media.get(i);
             if (item == null || item.isBlank()) continue;
             CommentMedia commentMedia = new CommentMedia();
             commentMedia.setComment(comment);
             commentMedia.setMediaUrl(item);
+            commentMedia.setMediaType(detectMediaTypeFromUrl(item));
             commentMedia.setMediaOrder(i);
             commentMediaRepository.save(commentMedia);
         }
     }
 
-    private boolean isPostVisible(Post post, Long viewerId, List<Long> friendIds) {
-        String visibility = post.getVisibility();
-        Long authorId = post.getAuthor().getId();
-        if (viewerId != null && viewerId.equals(authorId)) {
-            return true;
-        }
-        if ("public".equals(visibility)) {
-            return true;
-        }
-        if ("friends".equals(visibility) && friendIds.contains(authorId)) {
-            return true;
-        }
-        return false;
+    public PostFeedResponse getPost(Long postId, Long viewerId) {
+        Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
+        privacyAccessService.requirePostAccess(post, viewerId);
+        return toFeedResponse(post, viewerId);
     }
 
     private PostFeedResponse toFeedResponse(Post post, Long viewerId) {
@@ -290,7 +330,7 @@ public class PostService {
             shareCount,
             likedByMe,
             hasSharedByMe,
-            getComments(post.getId(), viewerId),
+            mapComments(post.getId(), viewerId),
             postMediaRepository.findByPostIdOrderByMediaOrderAsc(post.getId()).stream()
                 .map(media -> new PostMediaResponse(media.getId(), media.getMediaType(), media.getMediaUrl(), media.getMediaName(), media.getMediaSize(), media.getMediaOrder()))
                 .toList(),
@@ -325,14 +365,14 @@ public class PostService {
             comment.getCreatedAt(),
             comment.getParentComment() != null ? comment.getParentComment().getId() : null,
             commentMediaRepository.findByCommentIdOrderByMediaOrderAsc(comment.getId()).stream()
-                .map(media -> new CommentMediaResponse(media.getId(), media.getMediaUrl(), media.getMediaOrder()))
+                .map(media -> new CommentMediaResponse(media.getId(), media.getMediaType(), media.getMediaUrl(), media.getMediaName(), media.getMediaOrder()))
                 .toList(),
             commentLikeRepository.countByCommentId(comment.getId()),
             viewerId != null && commentLikeRepository.existsByCommentIdAndUserId(comment.getId(), viewerId)
         );
     }
 
-    private List<PostCommentResponse> getComments(Long postId, Long viewerId) {
+    private List<PostCommentResponse> mapComments(Long postId, Long viewerId) {
         return postCommentRepository.findByPostIdOrderByCreatedAtAsc(postId).stream().map(comment -> toCommentResponse(comment, viewerId)).toList();
     }
 }

@@ -4,6 +4,10 @@ import type { CommentMedia, PostComment, PostFeedItem, PostMedia, User } from '.
 import { resolveMediaUrl } from '../lib/api';
 import ShareModal from './ShareModal';
 import PollCard from './PollCard';
+import PostMediaSection from './PostMediaSection';
+import CommentMediaSection from './CommentMediaSection';
+import CommentDraftMedia from './CommentDraftMedia';
+import LinkifiedText from './LinkifiedText';
 
 type Draft = { content: string; media: string[] };
 type CommentLikeState = Record<number, { likeCount: number; likedByMe: boolean }>;
@@ -125,15 +129,7 @@ function PostCard({
   };
 
   const getFileDownloadUrl = (mediaUrl: string) => {
-    const url = resolveMediaUrl(mediaUrl);
-    if (url.startsWith('data:')) return url;
-    // Extract filename from URL for download endpoint
-    const parts = url.split('/');
-    const filename = parts[parts.length - 1];
-    if (filename) {
-      return `http://localhost:8080/api/files/download/${filename}`;
-    }
-    return url;
+    return resolveMediaUrl(mediaUrl);
   };
 
   const renderViewerContent = (media: PostMedia[]) => {
@@ -227,6 +223,9 @@ function PostCard({
     );
   };
 
+  void renderPostMedia;
+  void renderCommentMedia;
+
   const renderCommentTree = (comments: PostComment[], parentId: number | null = null, depth = 0): ReactElement[] =>
     comments
       .filter((comment) => comment.parentCommentId === parentId)
@@ -263,8 +262,8 @@ function PostCard({
                 </div>
               ) : (
                 <>
-                  <div className="comment-text">{comment.content}</div>
-                  {renderCommentMedia(comment.media)}
+                  <LinkifiedText className="comment-text" text={comment.content} />
+                  <CommentMediaSection media={comment.media} onOpenImage={onOpenViewer} />
                 </>
               )}
               <div className="feed-actions comment-actions">
@@ -309,9 +308,16 @@ function PostCard({
                     }))
                   }
                 />
+                <CommentDraftMedia
+                  media={replyDrafts[comment.id]?.media}
+                  onRemove={() => onSetReplyDrafts(current => ({
+                    ...current,
+                    [comment.id]: { content: current[comment.id]?.content ?? '', media: [] },
+                  }))}
+                />
                 <div className="feed-actions">
                   <label className="icon-upload">
-                    <input type="file" accept="image/*" multiple onChange={(e) => onPickReplyMedia(comment.id, e.target.files)} />
+                    <input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z,.txt,.csv" onChange={(e) => onPickReplyMedia(comment.id, e.target.files)} />
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         d="M4 7a3 3 0 013-3h6.5c.8 0 1.5.3 2.1.9l3.5 3.5c.6.6.9 1.3.9 2.1V17a3 3 0 01-3 3H7a3 3 0 01-3-3V7zm8 0v3h3"
@@ -396,7 +402,7 @@ function PostCard({
         <PollCard post={post} userId={user.id} />
       )}
 
-      {renderPostMedia(post.media)}
+      <PostMediaSection media={post.media} />
 
       <div className="feed-actions post-actions">
         <button className={`chip ${post.likedByMe ? 'chip-solid' : ''}`} type="button" onClick={() => onLikePost(post.id)}>
@@ -435,9 +441,16 @@ function PostCard({
                 }))
               }
             />
+            <CommentDraftMedia
+              media={commentDraft?.media}
+              onRemove={() => onSetCommentDraft(current => ({
+                ...current,
+                [post.id]: { content: current[post.id]?.content ?? '', media: [] },
+              }))}
+            />
             <div className="feed-actions">
               <label className="icon-upload">
-                <input type="file" accept="image/*" multiple onChange={(e) => onPickCommentMedia(post.id, e.target.files)} />
+                <input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z,.txt,.csv" onChange={(e) => onPickCommentMedia(post.id, e.target.files)} />
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     d="M4 7a3 3 0 013-3h6.5c.8 0 1.5.3 2.1.9l3.5 3.5c.6.6.9 1.3.9 2.1V17a3 3 0 01-3 3H7a3 3 0 01-3-3V7zm8 0v3h3"

@@ -1,8 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api, resolveMediaUrl } from '../lib/api';
-import type { GroupPost, PostComment, User, PostMedia } from '../types';
+import { uploadFileUrl } from '../lib/upload';
+import type { GroupPost, PostComment, PostMedia } from '../types';
 import PollCard from '../components/PollCard';
+import PostMediaSection from '../components/PostMediaSection';
+import CommentMediaSection from '../components/CommentMediaSection';
+import CommentDraftMedia from '../components/CommentDraftMedia';
+import LinkifiedText from '../components/LinkifiedText';
 
 type Draft = { content: string; media: string[] };
 type CommentLikeState = Record<number, { likeCount: number; likedByMe: boolean }>;
@@ -22,6 +27,7 @@ export default function GroupPostDetailPage() {
   const EMOJIS = useMemo(() => [
     '😀','😂','🥰','😍','😘','😊','😉','🤔','😢','😭','😡','🥳','👍','👎','👏','🙏','❤️','💔','🔥','✨','🎉','😎','🤗','🤭','😴','😷','🤢','🤡','💩','👻','👽','🤖','🎃','🤝','👊','✌️','🤞','🤟','🤘','👌','🤌','🖐️','✋','👋','💪','🦾','🦵','🦶','👂','👃','🧠','🫀','🫁','🦷','👀','👁️','👅','👄','💋','🩸'
   ], []);
+  void EMOJIS;
 
   const [post, setPost] = useState<GroupPost | null>(null);
   const [group, setGroup] = useState<{ id: number; name: string } | null>(null);
@@ -34,20 +40,7 @@ export default function GroupPostDetailPage() {
   const [viewerIndex, setViewerIndex] = useState(0);
   const [expandedComments, setExpandedComments] = useState(true);
 
-  const fileToBase64 = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-
-  const pickMedia = async (files: FileList | null, setter: (value: string[]) => void) => {
-    if (!files?.length) return;
-    const picked = Array.from(files).slice(0, 10);
-    const encoded = await Promise.all(picked.map((file) => fileToBase64(file)));
-    setter(encoded);
-  };
+  const fileToBase64 = (file: File) => uploadFileUrl(file, 'comments');
 
   useEffect(() => {
     loadPostData();
@@ -84,7 +77,7 @@ export default function GroupPostDetailPage() {
   };
 
   const handleComment = async () => {
-    if (!groupId || !postId || !commentDraft.content.trim()) return;
+    if (!groupId || !postId || (!commentDraft.content.trim() && !commentDraft.media.length)) return;
     try {
       await api.addCommentGroupPost(parseInt(groupId), parseInt(postId), userId, { content: commentDraft.content, media: commentDraft.media });
       setCommentDraft({ content: '', media: [] });
@@ -97,7 +90,7 @@ export default function GroupPostDetailPage() {
   const handleReply = async (commentId: number) => {
     if (!groupId || !postId) return;
     const draft = replyDrafts[commentId];
-    if (!draft?.content.trim()) return;
+    if (!draft || (!draft.content.trim() && !draft.media.length)) return;
     try {
       await api.addCommentGroupPost(parseInt(groupId), parseInt(postId), userId, { content: draft.content, media: draft.media, parentCommentId: commentId });
       setReplyDrafts(current => ({ ...current, [commentId]: { content: '', media: [] } }));
@@ -122,21 +115,16 @@ export default function GroupPostDetailPage() {
 
   const handlePickCommentMedia = async (files: FileList | null) => {
     if (!files?.length) return;
-    const picked = Array.from(files).slice(0, 10);
-    const encoded = await Promise.all(picked.map((file) => fileToBase64(file)));
-    setCommentDraft(current => ({
-      ...current,
-      media: [...current.media, ...encoded].slice(0, 10),
-    }));
+    const encoded = await fileToBase64(files[0]);
+    setCommentDraft(current => ({ ...current, media: [encoded] }));
   };
 
   const handlePickReplyMedia = async (commentId: number, files: FileList | null) => {
     if (!files?.length) return;
-    const picked = Array.from(files).slice(0, 10);
-    const encoded = await Promise.all(picked.map((file) => fileToBase64(file)));
+    const encoded = await fileToBase64(files[0]);
     setReplyDrafts(current => ({
       ...current,
-      [commentId]: { content: current[commentId]?.content ?? '', media: [...(current[commentId]?.media ?? []), ...encoded].slice(0, 10) },
+      [commentId]: { content: current[commentId]?.content ?? '', media: [encoded] },
     }));
   };
 
@@ -148,10 +136,7 @@ export default function GroupPostDetailPage() {
   };
 
   const getFileDownloadUrl = (mediaUrl: string) => {
-    const url = resolveMediaUrl(mediaUrl);
-    if (url.startsWith('data:')) return url;
-    if (url.includes('/download')) return url;
-    return url + '/download';
+    return resolveMediaUrl(mediaUrl);
   };
 
   const renderMediaThumbnail = (item: PostMedia) => {
@@ -267,6 +252,9 @@ export default function GroupPostDetailPage() {
     );
   };
 
+  void renderPostMedia;
+  void renderCommentMedia;
+
   const renderCommentTree = (commentList: PostComment[], parentId: number | null = null, depth = 0) =>
     commentList
       .filter((comment) => comment.parentCommentId === parentId)
@@ -286,8 +274,8 @@ export default function GroupPostDetailPage() {
                   <div className="post-meta">{new Date(comment.createdAt).toLocaleString()}</div>
                 </div>
               </div>
-              <div className="comment-text" style={{ marginTop: '8px' }}>{comment.content}</div>
-              {renderCommentMedia(comment.media)}
+              <LinkifiedText className="comment-text" text={comment.content} />
+              <CommentMediaSection media={comment.media} />
               <div className="feed-actions comment-actions" style={{ marginTop: '8px' }}>
                 <button className={`chip ${likedByMe ? 'chip-solid' : ''}`} type="button" onClick={() => handleToggleCommentLike(comment.id)}>
                   Thích <span>{likeCount}</span>
@@ -312,22 +300,29 @@ export default function GroupPostDetailPage() {
                 <textarea
                   placeholder="Trả lời bình luận..."
                   rows={2}
-                  value={replyDrafts[commentId]?.content ?? ''}
+                  value={replyDrafts[comment.id]?.content ?? ''}
                   onChange={(e) =>
                     setReplyDrafts(current => ({
                       ...current,
-                      [commentId]: { content: e.target.value, media: current[commentId]?.media ?? [] },
+                      [comment.id]: { content: e.target.value, media: current[comment.id]?.media ?? [] },
                     }))
                   }
                 />
+                <CommentDraftMedia
+                  media={replyDrafts[comment.id]?.media}
+                  onRemove={() => setReplyDrafts(current => ({
+                    ...current,
+                    [comment.id]: { content: current[comment.id]?.content ?? '', media: [] },
+                  }))}
+                />
                 <div className="feed-actions" style={{ marginTop: '8px' }}>
                   <label className="icon-upload">
-                    <input type="file" accept="image/*" multiple onChange={(e) => handlePickReplyMedia(commentId, e.target.files)} />
+                    <input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z,.txt,.csv" onChange={(e) => handlePickReplyMedia(comment.id, e.target.files)} />
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M4 7a3 3 0 013-3h6.5c.8 0 1.5.3 2.1.9l3.5 3.5c.6.6.9 1.3.9 2.1V17a3 3 0 01-3 3H7a3 3 0 01-3-3V7zm8 0v3h3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </label>
-                  <button className="primary-button" type="button" onClick={() => handleReply(commentId)}>
+                  <button className="primary-button" type="button" onClick={() => handleReply(comment.id)}>
                     Gửi
                   </button>
                 </div>
@@ -398,7 +393,7 @@ export default function GroupPostDetailPage() {
 
         {post.isPoll && <PollCard post={post} userId={userId} />}
 
-        {renderPostMedia(post.media)}
+        <PostMediaSection media={post.media} />
 
         <div className="feed-actions post-actions" style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #eee' }}>
           <button className={`chip ${post.likedByMe ? 'chip-solid' : ''}`} type="button" onClick={handleLikePost}>
@@ -433,9 +428,10 @@ export default function GroupPostDetailPage() {
               value={commentDraft.content}
               onChange={(e) => setCommentDraft(current => ({ ...current, content: e.target.value }))}
             />
+            <CommentDraftMedia media={commentDraft.media} onRemove={() => setCommentDraft(current => ({ ...current, media: [] }))} />
             <div className="feed-actions" style={{ marginTop: '12px' }}>
               <label className="icon-upload">
-                <input type="file" accept="image/*" multiple onChange={(e) => handlePickCommentMedia(e.target.files)} />
+                <input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z,.txt,.csv" onChange={(e) => handlePickCommentMedia(e.target.files)} />
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M4 7a3 3 0 013-3h6.5c.8 0 1.5.3 2.1.9l3.5 3.5c.6.6.9 1.3.9 2.1V17a3 3 0 01-3 3H7a3 3 0 01-3-3V7zm8 0v3h3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>

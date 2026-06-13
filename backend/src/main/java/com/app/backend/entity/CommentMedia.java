@@ -17,8 +17,7 @@ public class CommentMedia {
     @Column(nullable = false, length = 20)
     private String mediaType = "image"; // image, video, file
 
-    @Lob
-    @Column(columnDefinition = "LONGTEXT", nullable = false)
+    @Column(nullable = false, length = 2048)
     private String mediaUrl;
 
     @Column(length = 255)

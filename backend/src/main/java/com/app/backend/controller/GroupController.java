@@ -150,6 +150,11 @@ public class GroupController {
 
     // ==================== Join Requests ====================
 
+    @GetMapping("/join-requests/pending")
+    public ResponseEntity<List<GroupJoinRequestResponse>> getMyPendingJoinRequests(@RequestParam Long userId) {
+        return ResponseEntity.ok(groupService.getPendingJoinRequestsByUser(userId));
+    }
+
     @GetMapping("/{groupId}/join-requests")
     public ResponseEntity<List<GroupJoinRequestResponse>> getPendingJoinRequests(
             @PathVariable Long groupId,

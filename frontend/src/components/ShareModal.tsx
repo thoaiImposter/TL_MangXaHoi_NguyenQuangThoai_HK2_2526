@@ -1,4 +1,4 @@
-import { useState, useEffect, type Dispatch, type SetStateAction } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
 import type { PostFeedItem, User, Group } from '../types';
 
@@ -26,6 +26,7 @@ export default function ShareModal({ post, user, isOpen, onClose, onShared }: Sh
   useEffect(() => {
     if (isOpen && shareTarget === 'group') {
       loadMyGroups();
+      setShareVisibility('public');
     }
   }, [isOpen, shareTarget]);
 
@@ -185,7 +186,7 @@ export default function ShareModal({ post, user, isOpen, onClose, onShared }: Sh
             />
           </div>
 
-          <div className="form-group">
+          {shareTarget === 'timeline' ? <div className="form-group">
             <label className="form-label">Quyền riêng tư</label>
             <div className="share-visibility-buttons">
               <button
@@ -223,7 +224,12 @@ export default function ShareModal({ post, user, isOpen, onClose, onShared }: Sh
                 Riêng tư
               </button>
             </div>
-          </div>
+          </div> : (
+            <div className="form-group">
+              <label className="form-label">Quyền riêng tư</label>
+              <p className="subtle">Bài chia sẻ tự động áp dụng quyền riêng tư của nhóm đã chọn.</p>
+            </div>
+          )}
         </div>
 
         {error && <div className="form-error">{error}</div>}

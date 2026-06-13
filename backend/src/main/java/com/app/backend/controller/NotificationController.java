@@ -2,6 +2,7 @@ package com.app.backend.controller;
 
 import com.app.backend.dto.NotificationResponse;
 import com.app.backend.service.NotificationService;
+import com.app.backend.service.AuthenticatedUserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,9 +15,11 @@ import java.util.Map;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final AuthenticatedUserService authenticatedUserService;
 
-    public NotificationController(NotificationService notificationService) {
+    public NotificationController(NotificationService notificationService, AuthenticatedUserService authenticatedUserService) {
         this.notificationService = notificationService;
+        this.authenticatedUserService = authenticatedUserService;
     }
 
     // Notification endpoints (RESTful: /users/{userId}/notifications)
@@ -32,7 +35,7 @@ public class NotificationController {
 
     @PutMapping("/notifications/{id}/read")
     public ResponseEntity<?> markAsRead(@PathVariable Long id) {
-        notificationService.markAsRead(id);
+        notificationService.markAsRead(id, authenticatedUserService.getCurrentUserId());
         return ResponseEntity.ok().build();
     }
 

@@ -18,6 +18,8 @@ export default function GroupsPage() {
   const isFacultyUnion = userRole === 'faculty_union';
   const [activeTab, setActiveTab] = useState<'discover' | 'my-groups'>('discover');
   const [groups, setGroups] = useState<Group[]>([]);
+  const [memberGroupIds, setMemberGroupIds] = useState<Set<number>>(new Set());
+  const [pendingGroupIds, setPendingGroupIds] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -43,8 +45,14 @@ export default function GroupsPage() {
   const loadPublicGroups = async () => {
     setLoading(true);
     try {
-      const data = await api.getPublicGroups();
+      const [data, myGroups, pendingRequests] = await Promise.all([
+        api.getPublicGroups(),
+        api.getMyGroups(userId, 0, 1000),
+        api.getMyPendingGroupJoinRequests(userId),
+      ]);
       setGroups(data);
+      setMemberGroupIds(new Set(myGroups.map((group) => group.id)));
+      setPendingGroupIds(new Set(pendingRequests.map((request) => request.groupId)));
     } catch (error) {
       console.error('Failed to load public groups:', error);
     }
@@ -54,16 +62,13 @@ export default function GroupsPage() {
   const loadMyGroups = async () => {
     setLoading(true);
     try {
-      const data = await api.getMyGroups(userId);
+      const data = await api.getMyGroups(userId, 0, 1000);
       setGroups(data);
+      setMemberGroupIds(new Set(data.map((group) => group.id)));
     } catch (error) {
       console.error('Failed to load my groups:', error);
     }
     setLoading(false);
-  };
-
-  const isMemberOfGroup = (groupId: number, myGroups: Group[]): boolean => {
-    return myGroups.some(g => g.id === groupId);
   };
 
   const handleSearch = async () => {
@@ -73,8 +78,14 @@ export default function GroupsPage() {
     }
     setLoading(true);
     try {
-      const data = await api.searchGroups(searchQuery);
+      const [data, myGroups, pendingRequests] = await Promise.all([
+        api.searchGroups(searchQuery),
+        api.getMyGroups(userId, 0, 1000),
+        api.getMyPendingGroupJoinRequests(userId),
+      ]);
       setGroups(data);
+      setMemberGroupIds(new Set(myGroups.map((group) => group.id)));
+      setPendingGroupIds(new Set(pendingRequests.map((request) => request.groupId)));
     } catch (error) {
       console.error('Failed to search groups:', error);
     }
@@ -99,7 +110,7 @@ export default function GroupsPage() {
       if (excelFile && isFacultyUnion) {
         try {
           // Upload the Excel file to backend
-          const uploadResult = await api.uploadFile(excelFile, 'file');
+          const uploadResult = await api.uploadFile(excelFile, 'file', 'documents');
           // Create a group post with the uploaded Excel as attachment
           await api.createGroupPost(group.id, userId, {
             content: `📋 Danh sách sinh viên lớp ${group.name} - Xem file Excel đính kèm để biết chi tiết.`,
@@ -134,10 +145,16 @@ export default function GroupsPage() {
     try {
       const result = await api.joinGroup(groupId, userId);
       if ('message' in result) {
+        setPendingGroupIds((current) => new Set(current).add(groupId));
         alert(result.message);
       } else {
+        setMemberGroupIds((current) => new Set(current).add(groupId));
+        setPendingGroupIds((current) => {
+          const next = new Set(current);
+          next.delete(groupId);
+          return next;
+        });
         alert('Đã tham gia nhóm thành công!');
-        loadPublicGroups();
       }
     } catch (error) {
       console.error('Failed to join group:', error);
@@ -243,12 +260,13 @@ export default function GroupsPage() {
                 </p>
               </div>
               <div className="group-actions">
-                {activeTab === 'discover' && (
+                {activeTab === 'discover' && !memberGroupIds.has(group.id) && (
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={() => handleJoinGroup(group.id)}
+                    disabled={pendingGroupIds.has(group.id)}
                   >
-                    Tham gia
+                    {pendingGroupIds.has(group.id) ? 'Đã gửi yêu cầu' : 'Tham gia'}
                   </button>
                 )}
                 <button

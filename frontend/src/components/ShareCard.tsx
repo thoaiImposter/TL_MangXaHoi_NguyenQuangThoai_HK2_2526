@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { confirmAction } from '../lib/feedback';
 import type { PostShare, User } from '../types';
 
 type ShareCardProps = {
@@ -10,9 +11,9 @@ type ShareCardProps = {
 export default function ShareCard({ share, user, onDelete }: ShareCardProps) {
   const canDelete = share.sharedByUserId === user.id;
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (canDelete && onDelete) {
-      if (confirm('Bạn có chắc muốn xóa bài chia sẻ này?')) {
+      if (await confirmAction('Bạn có chắc muốn xóa bài chia sẻ này?', { title: 'Xóa bài chia sẻ', confirmLabel: 'Xóa', danger: true })) {
         onDelete(share.id);
       }
     }
@@ -70,7 +71,7 @@ export default function ShareCard({ share, user, onDelete }: ShareCardProps) {
           Bài viết gốc
         </div>
         
-        <Link to={`/post/${share.originalPostId}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+        {share.isOriginalPostAvailable ? <Link to={`/post/${share.originalPostId}`} style={{ textDecoration: 'none', color: 'inherit' }}>
           <div className="author-meta">
             <div className="author-avatar author-avatar-sm">
               {share.originalAuthorAvatar ? (
@@ -89,7 +90,12 @@ export default function ShareCard({ share, user, onDelete }: ShareCardProps) {
               ? share.originalPostContent.substring(0, 200) + '...' 
               : share.originalPostContent}
           </p>
-        </Link>
+        </Link> : (
+          <div className="empty-state" style={{ padding: '20px 8px' }}>
+            <strong>Bài viết gốc không còn khả dụng</strong>
+            <p className="text-muted text-sm">Bài viết đã bị xóa, chuyển riêng tư hoặc bạn không có quyền xem.</p>
+          </div>
+        )}
       </div>
 
       {/* Action buttons */}
@@ -102,14 +108,14 @@ export default function ShareCard({ share, user, onDelete }: ShareCardProps) {
             Bình luận
           </Link>
         )}
-        <Link to={`/post/${share.originalPostId}`} className="chip" style={{ textDecoration: 'none', color: 'inherit' }}>
+        {share.isOriginalPostAvailable && <Link to={`/post/${share.originalPostId}`} className="chip" style={{ textDecoration: 'none', color: 'inherit' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10"/>
             <line x1="2" y1="12" x2="22" y2="12"/>
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
           </svg>
           Xem bài gốc
-        </Link>
+        </Link>}
         {canDelete && (
           <button 
             className="chip" 

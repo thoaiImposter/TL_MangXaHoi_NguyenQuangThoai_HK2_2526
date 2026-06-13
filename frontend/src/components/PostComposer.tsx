@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { api } from '../lib/api';
 import type { User, Group } from '../types';
 
@@ -44,7 +44,6 @@ export default function PostComposer({
   editingData,
   showVisibility = false,
   compact = false,
-  onClose,
 }: PostComposerProps) {
   const [content, setContent] = useState(editingData?.content || '');
   const [media, setMedia] = useState<(File | string)[]>(
@@ -53,6 +52,7 @@ export default function PostComposer({
   const [visibility, setVisibility] = useState(editingData?.visibility || 'public');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const [mediaInputKey, setMediaInputKey] = useState(0);
 
@@ -69,12 +69,15 @@ export default function PostComposer({
 
   const uploadMedia = async (items: (File | string)[]): Promise<PostComposerMedia[]> => {
     const uploaded: PostComposerMedia[] = [];
-    for (const item of items) {
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      const updateProgress = (fileProgress: number) =>
+        setUploadProgress(Math.round(((index + fileProgress / 100) / items.length) * 100));
       if (item instanceof File) {
         let type: 'image' | 'video' | 'file' = 'file';
         if (item.type.startsWith('image/')) type = 'image';
         else if (item.type.startsWith('video/')) type = 'video';
-        const result = await api.uploadFile(item, type);
+        const result = await api.uploadFile(item, type, 'posts', updateProgress);
         uploaded.push({ url: result.mediaUrl, type: result.mediaType, name: result.mediaName, size: result.mediaSize });
       } else if (typeof item === 'string') {
         if (item.startsWith('data:')) {
@@ -85,7 +88,7 @@ export default function PostComposer({
           let type: 'image' | 'video' | 'file' = 'file';
           if (blob.type.startsWith('image/')) type = 'image';
           else if (blob.type.startsWith('video/')) type = 'video';
-          const result = await api.uploadFile(file, type);
+          const result = await api.uploadFile(file, type, 'posts', updateProgress);
           uploaded.push({ url: result.mediaUrl, type: result.mediaType, name: result.mediaName, size: result.mediaSize });
         } else {
           const ext = item.split('.').pop()?.toLowerCase() || '';
@@ -95,6 +98,7 @@ export default function PostComposer({
           if (videoExts.includes(ext)) type = 'video';
           else if (imageExts.includes(ext)) type = 'image';
           uploaded.push({ url: item, type });
+          updateProgress(100);
         }
       }
     }
@@ -111,6 +115,7 @@ export default function PostComposer({
     }
 
     setLoading(true);
+    setUploadProgress(0);
     setError('');
     try {
       const uploadedMedia = await uploadMedia(media);
@@ -137,6 +142,7 @@ export default function PostComposer({
       setEmojiOpen(false);
       setSelectedGroupIds([]);
       setMediaInputKey(k => k + 1);
+      setUploadProgress(0);
       onSuccess?.();
     } catch (err: any) {
       setError(err?.message || 'Không đăng được bài viết');
@@ -145,7 +151,7 @@ export default function PostComposer({
     }
   };
 
-  const getMediaPreview = (item: File | string, index: number) => {
+  const getMediaPreview = (item: File | string) => {
     const isFile = item instanceof File;
     const previewUrl = isFile ? URL.createObjectURL(item) : item;
     const isVideo = isFile
@@ -198,7 +204,7 @@ export default function PostComposer({
       {media.length > 0 && (
         <div className={`media-grid media-count-${Math.min(media.length, 4)}`} style={{ marginTop: '12px' }}>
           {media.slice(0, 4).map((item, index) => {
-            const { previewUrl, isVideo, isImage, fileName } = getMediaPreview(item, index);
+            const { previewUrl, isVideo, isImage, fileName } = getMediaPreview(item);
             return (
               <div className="media-tile draft-media" key={index} style={{ position: 'relative' }}>
                 {isVideo ? (
@@ -271,6 +277,18 @@ export default function PostComposer({
       )}
 
       {/* Actions bar */}
+      {loading && media.some(item => item instanceof File || item.startsWith('data:')) && (
+        <div className="upload-progress-card" aria-live="polite">
+          <div className="upload-progress-meta">
+            <span>Đang tải tệp trực tiếp lên cloud</span>
+            <strong>{uploadProgress}%</strong>
+          </div>
+          <div className="upload-progress-track">
+            <span style={{ width: `${uploadProgress}%` }} />
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-sm" style={{ marginTop: '12px' }}>
         <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
           <input

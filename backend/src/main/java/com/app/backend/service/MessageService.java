@@ -5,7 +5,6 @@ import com.app.backend.entity.Group;
 import com.app.backend.entity.GroupMember;
 import com.app.backend.entity.Message;
 import com.app.backend.entity.User;
-import com.app.backend.repository.FriendshipRepository;
 import com.app.backend.repository.GroupMemberRepository;
 import com.app.backend.repository.GroupRepository;
 import com.app.backend.repository.MessageRepository;
@@ -24,20 +23,18 @@ public class MessageService {
 
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
-    private final BlockService blockService;
-    private final FriendshipRepository friendshipRepository;
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
+    private final PrivacyAccessService privacyAccessService;
 
     public MessageService(MessageRepository messageRepository, UserRepository userRepository,
-                          BlockService blockService, FriendshipRepository friendshipRepository,
-                          GroupRepository groupRepository, GroupMemberRepository groupMemberRepository) {
+                          GroupRepository groupRepository, GroupMemberRepository groupMemberRepository,
+                          PrivacyAccessService privacyAccessService) {
         this.messageRepository = messageRepository;
         this.userRepository = userRepository;
-        this.blockService = blockService;
-        this.friendshipRepository = friendshipRepository;
         this.groupRepository = groupRepository;
         this.groupMemberRepository = groupMemberRepository;
+        this.privacyAccessService = privacyAccessService;
     }
 
     @Transactional
@@ -47,18 +44,8 @@ public class MessageService {
         User receiver = userRepository.findById(receiverId)
             .orElseThrow(() -> new IllegalArgumentException("Receiver not found"));
 
-        if (blockService.isBlocked(senderId, receiverId)) {
-            throw new IllegalArgumentException("Blocked");
-        }
-
-        if (Boolean.TRUE.equals(receiver.getAccountProtection())) {
-            boolean isFriend = friendshipRepository
-                .existsByRequesterIdAndAddresseeIdAndStatus(senderId, receiverId, "ACCEPTED")
-                || friendshipRepository
-                .existsByRequesterIdAndAddresseeIdAndStatus(receiverId, senderId, "ACCEPTED");
-            if (!isFriend) {
-                throw new IllegalArgumentException("This user only accepts messages from friends");
-            }
+        if (!privacyAccessService.canMessage(sender, receiver)) {
+            throw new IllegalArgumentException("Người dùng này chỉ nhận tin nhắn từ bạn bè");
         }
 
         if ((content == null || content.trim().isEmpty()) && (mediaUrl == null || mediaUrl.isEmpty())) {

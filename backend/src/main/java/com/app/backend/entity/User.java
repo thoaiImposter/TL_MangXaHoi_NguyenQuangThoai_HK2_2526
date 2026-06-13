@@ -23,12 +23,10 @@ public class User {
     @Column(nullable = false)
     private String role = "student";
 
-    @Lob
-    @Column(columnDefinition = "LONGTEXT")
+    @Column(length = 2048)
     private String avatar;
 
-    @Lob
-    @Column(columnDefinition = "LONGTEXT")
+    @Column(length = 2048)
     private String cover;
 
     @Column(length = 1000)

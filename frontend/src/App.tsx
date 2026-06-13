@@ -25,7 +25,8 @@ function App() {
   const navigate = useNavigate();
   const [user, setUser] = useState<SessionUser | null>(() => {
     const stored = localStorage.getItem('social_user');
-    return stored ? JSON.parse(stored) : null;
+    const token = localStorage.getItem('social_token');
+    return stored && token ? JSON.parse(stored) : null;
   });
   const [miniChats, setMiniChats] = useState<MiniChatItem[]>([]);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -62,6 +63,7 @@ function App() {
 
   const handleLogout = () => {
     setUser(null);
+    localStorage.removeItem('social_token');
     setMiniChats([]);
     navigate('/login');
   };
@@ -140,7 +142,7 @@ function App() {
         element={
           user ? (
             <AppLayout onLogout={handleLogout} user={user} miniChats={miniChats} onOpenMiniChat={openMiniChat} onOpenMiniGroupChat={openMiniGroupChat} onCloseMiniChat={closeMiniChat} onToggleMiniChat={toggleMiniChat} theme={theme} onToggleTheme={toggleTheme}>
-              <UserProfilePage currentUser={user} onOpenMiniChat={openMiniChat} />
+              <UserProfilePage currentUser={user} onUpdateUser={setUser} onOpenMiniChat={openMiniChat} />
             </AppLayout>
           ) : (
             <Navigate to="/login" replace />

@@ -45,13 +45,11 @@ export default function BulkMessageModal({ currentUser, onClose }: BulkMessageMo
     setLoading(false);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<input>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setMediaFile(file);
-      const reader = new FileReader();
-      reader.onload = (ev) => setMediaPreview(ev.target?.result as string);
-      reader.readAsDataURL(file);
+      setMediaPreview(file.type.startsWith('image/') ? URL.createObjectURL(file) : null);
     }
   };
 
@@ -97,19 +95,25 @@ export default function BulkMessageModal({ currentUser, onClose }: BulkMessageMo
     let failedCount = 0;
 
     try {
+      const mediaUrl = mediaFile
+        ? (await api.uploadFile(
+            mediaFile,
+            mediaFile.type.startsWith('image/') ? 'image' : mediaFile.type.startsWith('video/') ? 'video' : 'file',
+            'messages'
+          )).mediaUrl
+        : undefined;
+
       // If both media and content, send media first, then content
       for (const recipientId of selectedRecipients) {
         try {
-          if (mediaFile && message.trim()) {
+          if (mediaUrl && message.trim()) {
             // Send media first
-            const mediaData = await fileToBase64(mediaFile);
-            await api.sendMessage(currentUser.id, recipientId, '', mediaData);
+            await api.sendMessage(currentUser.id, recipientId, '', mediaUrl);
             // Then send content
             await api.sendMessage(currentUser.id, recipientId, message, undefined);
             successCount++;
-          } else if (mediaFile) {
-            const mediaData = await fileToBase64(mediaFile);
-            await api.sendMessage(currentUser.id, recipientId, '', mediaData);
+          } else if (mediaUrl) {
+            await api.sendMessage(currentUser.id, recipientId, '', mediaUrl);
             successCount++;
           } else if (message.trim()) {
             await api.sendMessage(currentUser.id, recipientId, message, undefined);
@@ -127,15 +131,6 @@ export default function BulkMessageModal({ currentUser, onClose }: BulkMessageMo
     } finally {
       setSending(false);
     }
-  };
-
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
   };
 
   const initials = (name: string) => (name?.trim()?.charAt(0) || 'U').toUpperCase();

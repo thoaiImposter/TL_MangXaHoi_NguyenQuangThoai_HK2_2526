@@ -30,6 +30,9 @@ public class PollService {
     @Autowired
     private PollVoteRepository pollVoteRepository;
 
+    @Autowired
+    private PrivacyAccessService privacyAccessService;
+
     /**
      * Create a new poll post
      */
@@ -51,7 +54,7 @@ public class PollService {
         Post post = new Post();
         post.setTitle(title);
         post.setContent(content);
-        post.setVisibility(visibility);
+        post.setVisibility(privacyAccessService.normalizeScope(visibility, PrivacyAccessService.PUBLIC));
         post.setAuthor(author);
         post.setPoll(true);
         post.setPollAllowMultiple(allowMultiple);
@@ -80,6 +83,7 @@ public class PollService {
     public Map<String, Object> vote(Long postId, Long userId, List<Long> optionIds) {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new NoSuchElementException("Post not found"));
+        privacyAccessService.requirePostAccess(post, userId);
 
         if (!post.isPoll()) {
             throw new IllegalArgumentException("This post is not a poll");
@@ -130,6 +134,7 @@ public class PollService {
     public Map<String, Object> getPollResults(Long postId, Long userId) {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new NoSuchElementException("Post not found"));
+        privacyAccessService.requirePostAccess(post, userId);
 
         if (!post.isPoll()) {
             throw new IllegalArgumentException("This post is not a poll");
@@ -186,6 +191,9 @@ public class PollService {
      */
     @Transactional
     public void removeVote(Long postId, Long userId) {
+        Post post = postRepository.findById(postId)
+            .orElseThrow(() -> new NoSuchElementException("Post not found"));
+        privacyAccessService.requirePostAccess(post, userId);
         List<PollVote> votes = pollVoteRepository.findByPostIdAndUserId(postId, userId);
         pollVoteRepository.deleteAll(votes);
     }

@@ -20,6 +20,11 @@ export interface User {
 // SessionUser is the same as User, used for localStorage session
 export type SessionUser = User;
 
+export interface AuthSession {
+  user: User;
+  token: string;
+}
+
 export interface AuthPayload {
   email: string;
   password: string;
@@ -136,6 +141,11 @@ export interface Friendship {
   updatedAt: string;
 }
 
+export interface FriendshipStatus {
+  status: 'self' | 'none' | 'pending' | 'pending_incoming' | 'accepted';
+  friendshipId: number | null;
+}
+
 export interface Message {
   id: number;
   senderId: number;
@@ -184,6 +194,7 @@ export interface ProfileUpdatePayload {
   faculty?: string;
   className?: string;
   academicYear?: string;
+  academicTitle?: string;
   avatar?: string;
   cover?: string;
 }

@@ -1,19 +1,23 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PostCard from '../components/PostCard';
-import PostComposer from '../components/PostComposer';
 import PostComposerBar from '../components/PostComposerBar';
+import PostComposerModal from '../components/PostComposerModal';
+import ProfileHeader from '../components/ProfileHeader';
 import ShareCard from '../components/ShareCard';
 import { api } from '../lib/api';
+import { uploadFileUrl } from '../lib/upload';
+import { getRoleProfileDetails } from '../lib/userRole';
 import type { Friendship, PostFeedItem, PostShare, User } from '../types';
 
 type ProfilePageProps = {
   user: User;
+  onUpdateUser: (user: User) => void;
 };
 
 type Draft = { content: string; media: string[] };
 
-function ProfilePage({ user }: ProfilePageProps) {
+function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
   const navigate = useNavigate();
   const [personalPosts, setPersonalPosts] = useState<PostFeedItem[]>([]);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -37,6 +41,8 @@ function ProfilePage({ user }: ProfilePageProps) {
   const [userShares, setUserShares] = useState<PostShare[]>([]);
   const [sharesPage, setSharesPage] = useState(0);
   const [hasMoreShares, setHasMoreShares] = useState(true);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
 
   const loadFeed = async (page = 0, append = false) => {
     if (page === 0) setLoading(true);
@@ -99,13 +105,7 @@ function ProfilePage({ user }: ProfilePageProps) {
     }
   };
 
-  const fileToBase64 = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
+  const fileToBase64 = (file: File) => uploadFileUrl(file, 'comments');
 
   const resetComposer = () => {
     setComposerOpen(false);
@@ -154,8 +154,8 @@ function ProfilePage({ user }: ProfilePageProps) {
 
   const submitComment = async (postId: number) => {
     const draft = commentDrafts[postId];
-    const content = draft?.content.trim();
-    if (!content) return;
+    const content = draft?.content.trim() ?? '';
+    if (!content && !draft?.media.length) return;
     await api.addComment(postId, user.id, { content, media: draft.media });
     setCommentDrafts((current) => ({ ...current, [postId]: { content: '', media: [] } }));
     await loadFeed();
@@ -163,8 +163,8 @@ function ProfilePage({ user }: ProfilePageProps) {
 
   const submitReply = async (postId: number, commentId: number) => {
     const draft = replyDrafts[commentId];
-    const content = draft?.content.trim();
-    if (!content) return;
+    const content = draft?.content.trim() ?? '';
+    if (!content && !draft?.media.length) return;
     await api.replyComment(postId, commentId, user.id, { content, media: draft.media });
     setReplyDrafts((current) => ({ ...current, [commentId]: { content: '', media: [] } }));
     setReplyTarget((current) => ({ ...current, [postId]: null }));
@@ -201,101 +201,81 @@ function ProfilePage({ user }: ProfilePageProps) {
 
   const onPickCommentMedia = async (postId: number, files: FileList | null) => {
     if (!files?.length) return;
-    const picked = await Promise.all(Array.from(files).slice(0, 10).map((file) => fileToBase64(file)));
+    const picked = await fileToBase64(files[0]);
     setCommentDrafts((current) => ({
       ...current,
-      [postId]: { content: current[postId]?.content ?? '', media: [...(current[postId]?.media ?? []), ...picked].slice(0, 10) },
+      [postId]: { content: current[postId]?.content ?? '', media: [picked] },
     }));
   };
 
   const onPickReplyMedia = async (commentId: number, files: FileList | null) => {
     if (!files?.length) return;
-    const picked = await Promise.all(Array.from(files).slice(0, 10).map((file) => fileToBase64(file)));
+    const picked = await fileToBase64(files[0]);
     setReplyDrafts((current) => ({
       ...current,
-      [commentId]: { content: current[commentId]?.content ?? '', media: [...(current[commentId]?.media ?? []), ...picked].slice(0, 10) },
+      [commentId]: { content: current[commentId]?.content ?? '', media: [picked] },
     }));
   };
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.currentTarget.value = '';
     if (!file) return;
+    setUploadingCover(true);
     try {
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        const coverData = String(ev.target?.result ?? '');
-        const updated = await api.updateProfile(user.id, { cover: coverData });
-        const event = new CustomEvent('user-updated', { detail: updated });
-        window.dispatchEvent(event);
-        setMessage('Đã cập nhật ảnh bìa.');
-        setTimeout(() => setMessage(''), 3000);
-      };
-      reader.readAsDataURL(file);
+      const coverUrl = await uploadFileUrl(file, 'covers');
+      const updated = await api.updateProfile(user.id, { cover: coverUrl });
+      onUpdateUser(updated);
+      setMessage('Đã cập nhật ảnh bìa.');
+      setTimeout(() => setMessage(''), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không cập nhật được ảnh bìa');
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.currentTarget.value = '';
+    if (!file) return;
+    setUploadingAvatar(true);
+    try {
+      const avatarUrl = await uploadFileUrl(file, 'avatars');
+      const updated = await api.updateProfile(user.id, { avatar: avatarUrl });
+      onUpdateUser(updated);
+      setMessage('Đã cập nhật ảnh đại diện.');
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không cập nhật được ảnh đại diện');
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
   return (
     <div className="profile-shell">
-      {/* Cover Photo */}
-      <div className="profile-cover" style={{
-        background: user.cover ? `url(${user.cover}) center/cover no-repeat` : 'var(--gray-200)',
-        position: 'relative'
-      }}>
-        <label className="btn btn-secondary" style={{
-          position: 'absolute',
-          top: '16px',
-          right: '16px',
-          padding: '8px 16px',
-          cursor: 'pointer',
-          background: 'rgba(0,0,0,0.6)',
-          color: 'white',
-          border: 'none',
-          borderRadius: 'var(--radius-md)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          fontSize: '14px'
-        }}>
-          📷 Đổi ảnh bìa
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleCoverUpload}
-            style={{ display: 'none' }}
-          />
-        </label>
-      </div>
-
-      {/* Profile Header */}
-      <div className="profile-header">
-        <div className="profile-avatar-large">
-          {user.avatar ? (
-            <img src={user.avatar} alt={user.fullName} />
-          ) : (
-            <div className="profile-avatar-placeholder">{user.fullName.charAt(0).toUpperCase()}</div>
-          )}
-        </div>
-        <div className="profile-info">
-          <h1 className="profile-name">{user.fullName}</h1>
-          <p className="profile-bio">{user.bio || 'Chưa có giới thiệu.'}</p>
-          <div className="profile-stats">
-            <div className="profile-stat">
-              <div className="profile-stat-value">{personalPosts.length}</div>
-              <div className="profile-stat-label">Bài viết</div>
-            </div>
-            <div className="profile-stat">
-              <div className="profile-stat-value">{userShares.length}</div>
-              <div className="profile-stat-label">Chia sẻ</div>
-            </div>
-            <div className="profile-stat">
-              <div className="profile-stat-value">{friends.length}</div>
-              <div className="profile-stat-label">Bạn bè</div>
-            </div>
-          </div>
-        </div>
-        <div className="profile-actions">
+      <ProfileHeader
+        profile={user}
+        stats={[
+          { label: 'Bài viết', value: personalPosts.length },
+          { label: 'Chia sẻ', value: userShares.length },
+          { label: 'Bạn bè', value: friends.length },
+        ]}
+        coverAction={(
+          <label className={`btn btn-secondary shared-profile-cover-button ${uploadingCover ? 'disabled' : ''}`}>
+            {uploadingCover ? 'Đang tải...' : 'Đổi ảnh bìa'}
+            <input type="file" accept="image/*" onChange={handleCoverUpload} hidden />
+          </label>
+        )}
+        avatarAction={(
+          <label className={`shared-profile-avatar-button ${uploadingAvatar ? 'disabled' : ''}`} title="Đổi ảnh đại diện">
+            <span aria-hidden="true">📷</span>
+            <input type="file" accept="image/*" onChange={handleAvatarUpload} hidden />
+          </label>
+        )}
+        actions={(
+          <>
           <Link to="/settings" className="btn btn-secondary">
             Chỉnh sửa thông tin
           </Link>
@@ -303,8 +283,9 @@ function ProfilePage({ user }: ProfilePageProps) {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
             Chia sẻ
           </button>
-        </div>
-      </div>
+          </>
+        )}
+      />
 
       {/* Profile Tabs - Row 1: Giới thiệu, Thông tin, Bạn bè */}
       <div className="profile-tabs">
@@ -351,33 +332,14 @@ function ProfilePage({ user }: ProfilePageProps) {
               </div>
             </div>
             <div className="flex flex-col gap-md" style={{ maxWidth: '500px' }}>
-              {user.faculty && (
-                <div className="flex items-center gap-md">
-                  <span style={{ fontSize: '20px' }}>🎓</span>
+              {getRoleProfileDetails(user).map(([label, value]) => (
+                <div className="flex items-center gap-md" key={label}>
                   <div>
-                    <p className="text-muted text-sm">Khoa</p>
-                    <p style={{ fontWeight: '600', color: 'var(--gray-900)' }}>{user.faculty}</p>
+                    <p className="text-muted text-sm">{label}</p>
+                    <p style={{ fontWeight: '600', color: 'var(--gray-900)' }}>{value}</p>
                   </div>
                 </div>
-              )}
-              {user.className && (
-                <div className="flex items-center gap-md">
-                  <span style={{ fontSize: '20px' }}>📚</span>
-                  <div>
-                    <p className="text-muted text-sm">Lớp</p>
-                    <p style={{ fontWeight: '600', color: 'var(--gray-900)' }}>{user.className}</p>
-                  </div>
-                </div>
-              )}
-              {user.academicYear && (
-                <div className="flex items-center gap-md">
-                  <span style={{ fontSize: '20px' }}>📅</span>
-                  <div>
-                    <p className="text-muted text-sm">Niên khóa</p>
-                    <p style={{ fontWeight: '600', color: 'var(--gray-900)' }}>{user.academicYear}</p>
-                  </div>
-                </div>
-              )}
+              ))}
             </div>
           </div>
         )}
@@ -404,24 +366,12 @@ function ProfilePage({ user }: ProfilePageProps) {
                 <span className="text-muted">Bio</span>
                 <strong style={{ color: 'var(--gray-900)' }}>{user.bio || 'Chưa có'}</strong>
               </div>
-              {user.faculty && (
-                <div className="flex justify-between items-center" style={{ padding: 'var(--spacing-md) 0', borderBottom: '1px solid var(--gray-100)' }}>
-                  <span className="text-muted">Khoa</span>
-                  <strong style={{ color: 'var(--gray-900)' }}>{user.faculty}</strong>
+              {getRoleProfileDetails(user).map(([label, value]) => (
+                <div className="flex justify-between items-center" style={{ padding: 'var(--spacing-md) 0', borderBottom: '1px solid var(--gray-100)' }} key={label}>
+                  <span className="text-muted">{label}</span>
+                  <strong style={{ color: 'var(--gray-900)' }}>{value}</strong>
                 </div>
-              )}
-              {user.className && (
-                <div className="flex justify-between items-center" style={{ padding: 'var(--spacing-md) 0', borderBottom: '1px solid var(--gray-100)' }}>
-                  <span className="text-muted">Lớp</span>
-                  <strong style={{ color: 'var(--gray-900)' }}>{user.className}</strong>
-                </div>
-              )}
-              {user.academicYear && (
-                <div className="flex justify-between items-center" style={{ padding: 'var(--spacing-md) 0', borderBottom: '1px solid var(--gray-100)' }}>
-                  <span className="text-muted">Niên khóa</span>
-                  <strong style={{ color: 'var(--gray-900)' }}>{user.academicYear}</strong>
-                </div>
-              )}
+              ))}
             </div>
           </div>
         )}
@@ -615,36 +565,16 @@ function ProfilePage({ user }: ProfilePageProps) {
 
       {/* Composer Modal */}
       {composerOpen && (
-        <div className="modal-backdrop" onClick={() => !loading && resetComposer()}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <p style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  {editingData ? 'Chỉnh sửa bài viết' : 'Tạo bài viết'}
-                </p>
-                <h2 className="modal-title">Bạn đang nghĩ gì?</h2>
-              </div>
-              <button className="modal-close" onClick={() => resetComposer()}>×</button>
-            </div>
-
-            <div className="modal-body">
-              <PostComposer
-                key={editingData?.id || 'new'}
-                user={user}
-                mode="regular"
-                showVisibility={!editingData}
-                editingData={editingData}
-                onSuccess={() => handleComposerSuccess(editingData ? 'Đã cập nhật bài viết.' : 'Đã đăng bài viết.')}
-                onClose={() => resetComposer()}
-              />
-            </div>
-
-            <div className="modal-footer">
-              {message && <div className="alert alert-success" style={{ marginBottom: 0 }}>{message}</div>}
-              {error && <div className="alert alert-error" style={{ marginBottom: 0 }}>{error}</div>}
-            </div>
-          </div>
-        </div>
+        <PostComposerModal
+          user={user}
+          editingData={editingData}
+          showVisibility={!editingData}
+          successMessage={message}
+          errorMessage={error}
+          closeDisabled={loading}
+          onClose={resetComposer}
+          onSuccess={() => handleComposerSuccess(editingData ? 'Đã cập nhật bài viết.' : 'Đã đăng bài viết.')}
+        />
       )}
     </div>
   );

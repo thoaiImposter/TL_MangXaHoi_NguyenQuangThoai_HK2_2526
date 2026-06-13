@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
 @CrossOrigin(origins = "*")
@@ -72,8 +73,12 @@ public class FriendshipController {
 
     // Friendship status endpoint (RESTful: /users/{userId}/friendship-status/{targetId})
     @GetMapping("/users/{userId}/friendship-status/{targetId}")
-    public ResponseEntity<Map<String, String>> getFriendshipStatus(@PathVariable Long userId, @PathVariable Long targetId) {
+    public ResponseEntity<Map<String, Object>> getFriendshipStatus(@PathVariable Long userId, @PathVariable Long targetId) {
         String status = friendshipService.getFriendshipStatus(userId, targetId);
-        return ResponseEntity.ok(Map.of("status", status));
+        FriendshipResponse friendship = friendshipService.getFriendshipBetween(userId, targetId);
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", status);
+        response.put("friendshipId", friendship == null ? null : friendship.getId());
+        return ResponseEntity.ok(response);
     }
 }

@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { uploadFileUrl } from '../lib/upload';
+import { hasAcademicTitle, hasFaculty, hasStudentDetails, ROLE_LABELS } from '../lib/userRole';
 import type { User } from '../types';
 
 type SettingsPageProps = {
@@ -20,10 +22,13 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
     faculty: user.faculty ?? '',
     className: user.className ?? '',
     academicYear: user.academicYear ?? '',
+    academicTitle: user.academicTitle ?? '',
   });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
 
   useEffect(() => {
     setAvatarPreview(user.avatar ?? '');
@@ -36,6 +41,7 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
       faculty: user.faculty ?? '',
       className: user.className ?? '',
       academicYear: user.academicYear ?? '',
+      academicTitle: user.academicTitle ?? '',
     });
   }, [user]);
 
@@ -45,7 +51,16 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
     setError('');
     setMessage('');
     try {
-      const updated = await api.updateProfile(user.id, form);
+      const updated = await api.updateProfile(user.id, {
+        fullName: form.fullName,
+        avatar: form.avatar,
+        cover: form.cover,
+        bio: form.bio,
+        faculty: hasFaculty(user.role) ? form.faculty : '',
+        className: hasStudentDetails(user.role) ? form.className : '',
+        academicYear: hasStudentDetails(user.role) ? form.academicYear : '',
+        academicTitle: hasAcademicTitle(user.role) ? form.academicTitle : '',
+      });
       onUpdateUser(updated);
       setAvatarPreview(updated.avatar ?? '');
       setMessage('Đã lưu thông tin cá nhân.');
@@ -53,6 +68,44 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
       setError(err instanceof Error ? err.message : 'Không lưu được hồ sơ');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAvatarUpload = async (file: File | null) => {
+    if (!file) return;
+    setUploadingAvatar(true);
+    setError('');
+    setMessage('');
+    try {
+      const avatarUrl = await uploadFileUrl(file, 'avatars');
+      const updated = await api.updateProfile(user.id, { avatar: avatarUrl });
+      onUpdateUser(updated);
+      setAvatarPreview(updated.avatar ?? '');
+      setForm((current) => ({ ...current, avatar: updated.avatar ?? '' }));
+      setMessage('Đã cập nhật ảnh đại diện.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không cập nhật được ảnh đại diện');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleCoverUpload = async (file: File | null) => {
+    if (!file) return;
+    setUploadingCover(true);
+    setError('');
+    setMessage('');
+    try {
+      const coverUrl = await uploadFileUrl(file, 'covers');
+      const updated = await api.updateProfile(user.id, { cover: coverUrl });
+      onUpdateUser(updated);
+      setCoverPreview(updated.cover ?? '');
+      setForm((current) => ({ ...current, cover: updated.cover ?? '' }));
+      setMessage('Đã cập nhật ảnh bìa.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không cập nhật được ảnh bìa');
+    } finally {
+      setUploadingCover(false);
     }
   };
 
@@ -83,6 +136,7 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
           </span>
           <span className="chip">User #{user.id}</span>
           <span className="chip">{user.email}</span>
+          <span className="chip">{ROLE_LABELS[user.role]}</span>
         </div>
 
         <form onSubmit={submit}>
@@ -104,17 +158,11 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
                 accept="image/*"
                 className="form-input"
                 onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const value = String(reader.result ?? '');
-                    setAvatarPreview(value);
-                    setForm((current) => ({ ...current, avatar: value }));
-                  };
-                  reader.readAsDataURL(file);
+                  const file = e.target.files?.[0] ?? null;
+                  e.currentTarget.value = '';
+                  await handleAvatarUpload(file);
                 }}
-                disabled={loading}
+                disabled={loading || uploadingAvatar}
               />
             </div>
 
@@ -134,17 +182,11 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
                 accept="image/*"
                 className="form-input"
                 onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const value = String(reader.result ?? '');
-                    setCoverPreview(value);
-                    setForm((current) => ({ ...current, cover: value }));
-                  };
-                  reader.readAsDataURL(file);
+                  const file = e.target.files?.[0] ?? null;
+                  e.currentTarget.value = '';
+                  await handleCoverUpload(file);
                 }}
-                disabled={loading}
+                disabled={loading || uploadingCover}
               />
             </div>
           </div>
@@ -169,61 +211,67 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}>
-            <div className="form-group">
-              <label className="form-label">Khoa</label>
-              <div style={{ position: 'relative' }}>
-                <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)', fontSize: '18px' }}>
-                  🎓
-                </span>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Công nghệ Thông tin"
-                  value={form.faculty}
-                  onChange={(e) => setForm({ ...form, faculty: e.target.value })}
-                  disabled={loading}
-                  style={{ paddingLeft: '48px' }}
-                />
-              </div>
-            </div>
+          {user.role !== 'school_union' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}>
+              {hasFaculty(user.role) && (
+                <div className="form-group">
+                  <label className="form-label">{user.role === 'faculty_union' ? 'Khoa quản lý' : 'Khoa'}</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Khoa Công nghệ Thông tin"
+                    value={form.faculty}
+                    onChange={(e) => setForm({ ...form, faculty: e.target.value })}
+                    disabled={loading}
+                    required
+                  />
+                </div>
+              )}
 
-            <div className="form-group">
-              <label className="form-label">Lớp</label>
-              <div style={{ position: 'relative' }}>
-                <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)', fontSize: '18px' }}>
-                  📚
-                </span>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="CNTT01"
-                  value={form.className}
-                  onChange={(e) => setForm({ ...form, className: e.target.value })}
-                  disabled={loading}
-                  style={{ paddingLeft: '48px' }}
-                />
-              </div>
-            </div>
+              {hasStudentDetails(user.role) && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Lớp</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="CNTT01"
+                      value={form.className}
+                      onChange={(e) => setForm({ ...form, className: e.target.value })}
+                      disabled={loading}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Niên khóa</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="2021-2025"
+                      value={form.academicYear}
+                      onChange={(e) => setForm({ ...form, academicYear: e.target.value })}
+                      disabled={loading}
+                    />
+                  </div>
+                </>
+              )}
 
-            <div className="form-group">
-              <label className="form-label">Niên khóa</label>
-              <div style={{ position: 'relative' }}>
-                <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)', fontSize: '18px' }}>
-                  📅
-                </span>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="2021-2025"
-                  value={form.academicYear}
-                  onChange={(e) => setForm({ ...form, academicYear: e.target.value })}
-                  disabled={loading}
-                  style={{ paddingLeft: '48px' }}
-                />
-              </div>
+              {hasAcademicTitle(user.role) && (
+                <div className="form-group">
+                  <label className="form-label">Học vị</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Thạc sĩ, Tiến sĩ..."
+                    value={form.academicTitle}
+                    onChange={(e) => setForm({ ...form, academicTitle: e.target.value })}
+                    disabled={loading}
+                    required
+                  />
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           <div className="form-group" style={{ marginBottom: 'var(--spacing-lg)' }}>
             <label className="form-label">Bio (Giới thiệu)</label>

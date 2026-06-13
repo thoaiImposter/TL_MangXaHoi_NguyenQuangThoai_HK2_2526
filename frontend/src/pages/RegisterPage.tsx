@@ -1,13 +1,14 @@
 import { useState, type FormEvent, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { uploadFileUrl } from '../lib/upload';
 import type { User, UserRole } from '../types';
 
 type RegistrationStep = 'email' | 'otp' | 'details';
 
 const ROLE_OPTIONS: { value: UserRole; label: string; icon: string; description: string }[] = [
   { value: 'student', label: 'Sinh viên', icon: '🎓', description: 'Sinh viên trường ĐH Nông Lâm TP.HCM' },
-  { value: 'advisor', label: 'Cố vấn học tập', icon: '👨‍🏫', description: 'Giảng viên phụ trách cố vấn lớp' },
+  { value: 'advisor', label: 'Giảng viên / Cố vấn', icon: '👨‍🏫', description: 'Giảng viên hoặc cố vấn học tập' },
   { value: 'faculty_union', label: 'Đoàn khoa', icon: '🏫', description: 'Ban chấp hành Đoàn khoa' },
   { value: 'school_union', label: 'Đoàn trường', icon: '🏛️', description: 'Ban chấp hành Đoàn trường' },
 ];
@@ -49,6 +50,7 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
     maxAttempts: 5,
     resendCooldown: 30,
   });
+  void otpConfig;
 
   const [passwordStrength, setPasswordStrength] = useState({
     length: false,
@@ -98,7 +100,7 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
         return 'Email sinh viên phải có dạng 8 số + @st.hcmuaf.edu.vn (vd: 21045678@st.hcmuaf.edu.vn)';
       }
     } else {
-      if (!email.endsWith('@hcmuaf.edu.vn')) {
+      if (!/^[^\s@]+@hcmuaf\.edu\.vn$/.test(email)) {
         return 'Email phải có đuôi @hcmuaf.edu.vn';
       }
     }
@@ -237,7 +239,13 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
     }
 
     // Role-specific validation
-    if (selectedRole === 'advisor') {
+    if (selectedRole === 'student') {
+      if (!formData.faculty.trim() || !formData.className.trim()) {
+        setError('Sinh viên cần nhập đầy đủ khoa và lớp');
+        setLoading(false);
+        return;
+      }
+    } else if (selectedRole === 'advisor') {
       if (!formData.academicTitle) {
         setError('Vui lòng chọn học vị');
         setLoading(false);
@@ -257,20 +265,21 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
     }
 
     try {
-      const user = await api.register({
+      const session = await api.register({
         email: email.toLowerCase(),
         password: formData.password,
         fullName: formData.fullName.trim(),
         role: selectedRole,
         avatar: formData.avatar,
         bio: formData.bio,
-        faculty: formData.faculty,
+        faculty: selectedRole !== 'school_union' ? formData.faculty : undefined,
         className: selectedRole === 'student' ? formData.className : undefined,
         academicYear: selectedRole === 'student' ? formData.academicYear : undefined,
         academicTitle: selectedRole === 'advisor' ? formData.academicTitle : undefined,
         otp: otp,
       });
-      onAuth(user);
+      localStorage.setItem('social_token', session.token);
+      onAuth(session.user);
       navigate('/home');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Đăng ký thất bại');
@@ -396,7 +405,7 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
                 <p className="text-muted text-sm mt-sm">
                   {selectedRole === 'student'
                     ? 'Định dạng: 8 chữ số + @st.hcmuaf.edu.vn'
-                    : 'Định dạng: @hcmuaf.edu.vn'}
+                    : 'Sử dụng email có đuôi @hcmuaf.edu.vn'}
                 </p>
               </div>
 
@@ -609,7 +618,7 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
               {selectedRole !== 'school_union' && (
                 <div className="form-group">
                   <label className="form-label">
-                    {selectedRole === 'student' ? 'Tên khoa' : selectedRole === 'advisor' ? 'Khoa phụ trách *' : 'Khoa quản lý *'}
+                    {selectedRole === 'student' ? 'Tên khoa *' : selectedRole === 'advisor' ? 'Khoa phụ trách *' : 'Khoa quản lý *'}
                   </label>
                   <div style={{ position: 'relative' }}>
                     <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)', fontSize: '18px' }}>
@@ -621,7 +630,7 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
                       placeholder="Khoa Công nghệ Thông tin"
                       value={formData.faculty}
                       onChange={(e) => setFormData({ ...formData, faculty: e.target.value })}
-                      required={selectedRole !== 'student'}
+                      required
                       disabled={loading}
                       style={{ paddingLeft: '48px' }}
                     />
@@ -633,7 +642,7 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
               {selectedRole === 'student' && (
                 <>
                   <div className="form-group">
-                    <label className="form-label">Tên lớp</label>
+                    <label className="form-label">Tên lớp *</label>
                     <div style={{ position: 'relative' }}>
                       <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)', fontSize: '18px' }}>
                         📚
@@ -644,6 +653,7 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
                         placeholder="CNTT01"
                         value={formData.className}
                         onChange={(e) => setFormData({ ...formData, className: e.target.value })}
+                        required
                         disabled={loading}
                         style={{ paddingLeft: '48px' }}
                       />
@@ -687,9 +697,8 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
                       setError('Vui lòng chọn file ảnh');
                       return;
                     }
-                    const reader = new FileReader();
-                    reader.onload = () => setFormData((current) => ({ ...current, avatar: String(reader.result ?? '') }));
-                    reader.readAsDataURL(file);
+                    const avatarUrl = await uploadFileUrl(file, 'avatars');
+                    setFormData((current) => ({ ...current, avatar: avatarUrl }));
                   }}
                   disabled={loading}
                 />

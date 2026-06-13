@@ -26,8 +26,7 @@ public class Message {
     @Column(nullable = false, length = 2000)
     private String content;
 
-    @Lob
-    @Column(name = "media_url", columnDefinition = "LONGTEXT")
+    @Column(name = "media_url", length = 2048)
     private String mediaUrl;
 
     @Column(name = "is_read")

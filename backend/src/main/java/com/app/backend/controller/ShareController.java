@@ -118,6 +118,6 @@ public class ShareController {
                                                   @RequestParam(required = false) Long viewerId,
                                                   @RequestParam(defaultValue = "0") int page,
                                                   @RequestParam(defaultValue = "10") int size) {
-        return shareService.getUserShares(userId, viewerId != null ? viewerId : userId, page, size);
+        return shareService.getUserShares(userId, viewerId, page, size);
     }
 }

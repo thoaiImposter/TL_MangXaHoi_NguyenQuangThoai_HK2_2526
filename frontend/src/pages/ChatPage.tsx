@@ -57,6 +57,7 @@ function ChatPage({ user }: ChatPageProps) {
       const map = new Map<number, { msg: Message; unread: number }>();
       for (const m of data) {
         const oid = m.senderId === user.id ? m.receiverId : m.senderId;
+        if (oid == null) continue;
         const existing = map.get(oid);
         if (!existing) {
           map.set(oid, { msg: m, unread: m.receiverId === user.id && !m.isRead ? 1 : 0 });
@@ -68,7 +69,7 @@ function ChatPage({ user }: ChatPageProps) {
         const isMe = msg.senderId === user.id;
         return {
           otherId,
-          otherName: isMe ? msg.receiverName : msg.senderName,
+          otherName: (isMe ? msg.receiverName : msg.senderName) || 'Người dùng',
           otherAvatar: isMe ? msg.receiverAvatar : msg.senderAvatar,
           lastContent: msg.content || '[Hình ảnh]',
           lastAt: msg.createdAt,
@@ -148,7 +149,7 @@ function ChatPage({ user }: ChatPageProps) {
   useEffect(() => {
     const ws = new WebSocket('ws://localhost:8080/ws/chat');
     wsRef.current = ws;
-    ws.onopen = () => { ws.send(JSON.stringify({ type: 'auth', userId: user.id })); };
+    ws.onopen = () => { ws.send(JSON.stringify({ type: 'auth', userId: user.id, token: localStorage.getItem('social_token') })); };
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);

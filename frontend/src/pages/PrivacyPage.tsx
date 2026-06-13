@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { User, BlockedUser } from '../types';
 
@@ -9,7 +8,6 @@ type PrivacyPageProps = {
 };
 
 function PrivacyPage({ user, onUpdateUser }: PrivacyPageProps) {
-  const navigate = useNavigate();
   const [blocked, setBlocked] = useState<BlockedUser[]>([]);
   const [protection, setProtection] = useState(Boolean(user.accountProtection));
   const [pwdForm, setPwdForm] = useState({ old: '', new: '', confirm: '' });
@@ -40,7 +38,8 @@ function PrivacyPage({ user, onUpdateUser }: PrivacyPageProps) {
 
   const toggleProtection = async () => {
     try {
-      const updated = await api.toggleProtection(user.id);
+      const updated = await api.setProtection(user.id, !protection);
+      setProtection(Boolean(updated.accountProtection));
       onUpdateUser(updated);
       setMsg(updated.accountProtection ? 'Bảo vệ tài khoản đã bật.' : 'Bảo vệ tài khoản đã tắt.');
       setErr('');
@@ -144,13 +143,13 @@ function PrivacyPage({ user, onUpdateUser }: PrivacyPageProps) {
               {blocked.map((b) => (
                 <div key={b.id} className="blocked-row">
                   <div className="blocked-avatar">
-                    {b.avatar ? <img src={b.avatar} alt={b.fullName} /> : initials(b.fullName)}
+                    {b.blockedAvatar ? <img src={b.blockedAvatar} alt={b.blockedName} /> : initials(b.blockedName)}
                   </div>
                   <div className="blocked-info">
-                    <strong>{b.fullName}</strong>
-                    <span className="subtle">ID #{b.id}</span>
+                    <strong>{b.blockedName}</strong>
+                    <span className="subtle">ID #{b.blockedId}</span>
                   </div>
-                  <button className="danger-button" type="button" onClick={() => unblock(b.id)}>
+                  <button className="danger-button" type="button" onClick={() => unblock(b.blockedId)}>
                     Gỡ chặn
                   </button>
                 </div>

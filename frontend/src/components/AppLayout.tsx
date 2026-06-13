@@ -23,7 +23,7 @@ type AppLayoutProps = {
   onToggleTheme: () => void;
 };
 
-function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onOpenMiniGroupChat, onCloseMiniChat, onToggleMiniChat, theme, onToggleTheme }: AppLayoutProps) {
+function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onCloseMiniChat, onToggleMiniChat, theme, onToggleTheme }: AppLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -184,6 +184,15 @@ function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onOpen
         </div>
 
         <div className="topbar-right">
+          <button
+            className="icon-nav theme-toggle"
+            type="button"
+            aria-label={theme === 'dark' ? 'Chuyển sang chế độ sáng' : 'Chuyển sang chế độ tối'}
+            title={theme === 'dark' ? 'Chế độ sáng' : 'Chế độ tối'}
+            onClick={onToggleTheme}
+          >
+            <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
+          </button>
           <button className="icon-nav" type="button" aria-label="Tin nhắn" onClick={() => navigate('/chat')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />

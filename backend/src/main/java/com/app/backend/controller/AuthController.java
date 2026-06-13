@@ -3,6 +3,8 @@ package com.app.backend.controller;
 import com.app.backend.dto.AuthRequest;
 import com.app.backend.dto.RegisterRequest;
 import com.app.backend.dto.UserResponse;
+import com.app.backend.dto.AuthResponse;
+import com.app.backend.service.AuthTokenService;
 import com.app.backend.service.UserService;
 import com.app.backend.service.OtpService;
 import org.springframework.http.HttpStatus;
@@ -19,10 +21,12 @@ public class AuthController {
 
     private final UserService userService;
     private final OtpService otpService;
+    private final AuthTokenService authTokenService;
 
-    public AuthController(UserService userService, OtpService otpService) {
+    public AuthController(UserService userService, OtpService otpService, AuthTokenService authTokenService) {
         this.userService = userService;
         this.otpService = otpService;
+        this.authTokenService = authTokenService;
     }
 
     /**
@@ -39,16 +43,7 @@ public class AuthController {
                 return ResponseEntity.badRequest().body("Email không được để trống");
             }
             
-            // Validate email format based on role
-            if ("student".equals(role)) {
-                if (!email.matches("^\\d{8}@st\\.hcmuaf\\.edu\\.vn$")) {
-                    return ResponseEntity.badRequest().body("Email sinh viên phải có dạng 8 số + @st.hcmuaf.edu.vn");
-                }
-            } else {
-                if (!email.endsWith("@hcmuaf.edu.vn")) {
-                    return ResponseEntity.badRequest().body("Email phải có đuôi @hcmuaf.edu.vn");
-                }
-            }
+            userService.validateRegistrationEmail(email, role);
             
             // Check if email is already registered
             if (userService.isEmailRegistered(email.trim().toLowerCase())) {
@@ -85,15 +80,7 @@ public class AuthController {
                 return ResponseEntity.badRequest().body("Email không được để trống");
             }
             
-            if ("student".equals(role)) {
-                if (!email.matches("^\\d{8}@st\\.hcmuaf\\.edu\\.vn$")) {
-                    return ResponseEntity.badRequest().body("Email sinh viên phải có dạng 8 số + @st.hcmuaf.edu.vn");
-                }
-            } else {
-                if (!email.endsWith("@hcmuaf.edu.vn")) {
-                    return ResponseEntity.badRequest().body("Email phải có đuôi @hcmuaf.edu.vn");
-                }
-            }
+            userService.validateRegistrationEmail(email, role);
             
             if (userService.isEmailRegistered(email.trim().toLowerCase())) {
                 return ResponseEntity.badRequest().body("Email đã được đăng ký");
@@ -105,6 +92,8 @@ public class AuthController {
                 "message", "Mã OTP mới đã được gửi đến email của bạn",
                 "expiresIn", 5
             ));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (Exception ex) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body("Không thể gửi OTP: " + ex.getMessage());
@@ -134,7 +123,8 @@ public class AuthController {
             }
             
             // Proceed with registration
-            return ResponseEntity.ok(userService.register(request));
+            UserResponse user = userService.register(request);
+            return ResponseEntity.ok(new AuthResponse(user, authTokenService.createToken(user.getId())));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (DataIntegrityViolationException ex) {
@@ -151,7 +141,8 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody AuthRequest request) {
         try {
-            return ResponseEntity.ok(userService.login(request));
+            UserResponse user = userService.login(request);
+            return ResponseEntity.ok(new AuthResponse(user, authTokenService.createToken(user.getId())));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage());
         }

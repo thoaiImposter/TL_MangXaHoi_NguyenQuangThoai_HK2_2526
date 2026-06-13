@@ -20,8 +20,9 @@ function LoginPage({ onAuth }: LoginPageProps) {
     setLoading(true);
     setError('');
     try {
-      const user = await api.login(form);
-      onAuth(user);
+      const session = await api.login(form);
+      localStorage.setItem('social_token', session.token);
+      onAuth(session.user);
       navigate('/home');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Đăng nhập thất bại');

@@ -10,6 +10,8 @@ USE social_app;
 
 -- Bước 3: Tạo tất cả các bảng
 
+-- File được upload lên Cloudinary; database chỉ lưu secure URL, không lưu base64/binary.
+
 -- 1. Users table với avatar và cover
 CREATE TABLE users (
   id BIGINT NOT NULL AUTO_INCREMENT,
@@ -17,8 +19,8 @@ CREATE TABLE users (
   password VARCHAR(255) NOT NULL,
   full_name VARCHAR(255) NOT NULL,
   role VARCHAR(20) NOT NULL DEFAULT 'student',
-  avatar LONGTEXT NULL,
-  cover LONGTEXT NULL,
+  avatar VARCHAR(2048) NULL,
+  cover VARCHAR(2048) NULL,
   bio VARCHAR(1000) NULL,
   faculty VARCHAR(255) NULL,
   class_name VARCHAR(255) NULL,
@@ -36,8 +38,8 @@ CREATE TABLE `groups` (
     id BIGINT NOT NULL AUTO_INCREMENT,
     name VARCHAR(255) NOT NULL,
     description VARCHAR(1000) NULL,
-    avatar LONGTEXT NULL,
-    cover LONGTEXT NULL,
+    avatar VARCHAR(2048) NULL,
+    cover VARCHAR(2048) NULL,
     privacy VARCHAR(20) NOT NULL DEFAULT 'public',
     creator_id BIGINT NOT NULL,
     approval_required BOOLEAN NOT NULL DEFAULT FALSE,
@@ -57,7 +59,7 @@ CREATE TABLE messages (
   mentioned_user_ids VARCHAR(1000) NULL, -- Lưu danh sách ID user được tag
   is_all_mentioned BOOLEAN NOT NULL DEFAULT FALSE, -- Cờ cho tính năng @all
   content VARCHAR(2000) NOT NULL,
-  media_url LONGTEXT NULL,
+  media_url VARCHAR(2048) NULL,
   media_type VARCHAR(20) NULL,
   is_read BOOLEAN NOT NULL DEFAULT FALSE,
   is_recalled BOOLEAN NOT NULL DEFAULT FALSE,
@@ -133,7 +135,7 @@ CREATE TABLE post_media (
   id BIGINT NOT NULL AUTO_INCREMENT,
   post_id BIGINT NOT NULL,
   media_type VARCHAR(20) NOT NULL,
-  media_url LONGTEXT NOT NULL,
+  media_url VARCHAR(2048) NOT NULL,
   media_name VARCHAR(255) NULL,
   media_size BIGINT NULL,
   media_order INT NULL,
@@ -165,7 +167,7 @@ CREATE TABLE comment_media (
   id BIGINT NOT NULL AUTO_INCREMENT,
   comment_id BIGINT NOT NULL,
   media_type VARCHAR(20) NOT NULL DEFAULT 'image',
-  media_url LONGTEXT NOT NULL,
+  media_url VARCHAR(2048) NOT NULL,
   media_name VARCHAR(255) NULL,
   media_order INT NULL,
   created_at DATETIME(6) NULL,
@@ -230,20 +232,6 @@ CREATE TABLE friend_requests (
   KEY idx_friend_requests_receiver (receiver_id),
   CONSTRAINT fk_friend_requests_sender FOREIGN KEY (sender_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT fk_friend_requests_receiver FOREIGN KEY (receiver_id) REFERENCES users (id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- 15. Post follows table (Đã dọn dẹp ký tự ẩn)
-CREATE TABLE post_follows (
-  id BIGINT NOT NULL AUTO_INCREMENT,
-  follower_id BIGINT NOT NULL,
-  following_id BIGINT NOT NULL,
-  created_at DATETIME(6) NULL,
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_post_follows_pair (follower_id, following_id),
-  KEY idx_post_follows_follower (follower_id),
-  KEY idx_post_follows_following (following_id),
-  CONSTRAINT fk_post_follows_follower FOREIGN KEY (follower_id) REFERENCES users (id) ON DELETE CASCADE,
-  CONSTRAINT fk_post_follows_following FOREIGN KEY (following_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 16. Notifications table

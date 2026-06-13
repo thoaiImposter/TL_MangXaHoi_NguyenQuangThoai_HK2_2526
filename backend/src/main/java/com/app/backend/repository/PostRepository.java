@@ -15,6 +15,12 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     Page<Post> findAllByOrderByCreatedAtDesc(Pageable pageable);
     Page<Post> findByAuthorIdOrderByCreatedAtDesc(Long authorId, Pageable pageable);
 
+    @org.springframework.data.jpa.repository.Query("SELECT p FROM Post p " +
+        "WHERE NOT EXISTS (SELECT 1 FROM GroupPost gp WHERE gp.post = p) " +
+        "AND NOT EXISTS (SELECT 1 FROM PostShare ps WHERE ps.sharedPost = p) " +
+        "ORDER BY p.createdAt DESC")
+    Page<Post> findTimelineCandidates(Pageable pageable);
+
     @org.springframework.data.jpa.repository.Query("SELECT p FROM Post p WHERE p.author.id = :authorId " +
         "AND NOT EXISTS (SELECT 1 FROM GroupPost gp WHERE gp.post = p) " +
         "AND NOT EXISTS (SELECT 1 FROM PostShare ps WHERE ps.sharedPost = p) " +

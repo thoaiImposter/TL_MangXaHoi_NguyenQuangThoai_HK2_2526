@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import PostCard from '../components/PostCard';
-import PostComposer from '../components/PostComposer';
-import PostComposerBar from '../components/PostComposerBar';
+import ProfileHeader from '../components/ProfileHeader';
+import ShareCard from '../components/ShareCard';
 import ProfilePage from './ProfilePage';
 import { api } from '../lib/api';
-import type { Friendship, PostFeedItem, User } from '../types';
+import { uploadFileUrl } from '../lib/upload';
+import { getRoleProfileDetails } from '../lib/userRole';
+import type { Friendship, PostFeedItem, PostShare, User } from '../types';
 
 type UserProfilePageProps = {
   currentUser: User;
+  onUpdateUser: (user: User) => void;
   onOpenMiniChat?: (userId: number) => void;
 };
 
 type Draft = { content: string; media: string[] };
 
-function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) {
+function UserProfilePage({ currentUser, onUpdateUser, onOpenMiniChat }: UserProfilePageProps) {
   const navigate = useNavigate();
   const { userId } = useParams();
   const targetId = Number(userId);
@@ -22,29 +25,40 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
   const [profile, setProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [friendStatus, setFriendStatus] = useState<string>('none');
+  const [friendshipId, setFriendshipId] = useState<number | null>(null);
+  const [friendActionLoading, setFriendActionLoading] = useState(false);
   const [friends, setFriends] = useState<Friendship[]>([]);
   const [feed, setFeed] = useState<PostFeedItem[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [editingData, setEditingData] = useState<{ id: number; content: string; media: { mediaUrl: string }[]; visibility?: string } | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<number, Draft>>({});
   const [replyDrafts, setReplyDrafts] = useState<Record<number, Draft>>({});
   const [replyTarget, setReplyTarget] = useState<Record<number, number | null>>({});
   const [expandedPosts, setExpandedPosts] = useState<Record<number, boolean>>({});
   const [expandedComments, setExpandedComments] = useState<Record<number, boolean>>({});
   const [viewerImage, setViewerImage] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
   const [commentLikeState, setCommentLikeState] = useState<Record<number, { likeCount: number; likedByMe: boolean }>>({});
-  const [profileTab, setProfileTab] = useState<'intro' | 'friends'>('intro');
+  const [profileTab, setProfileTab] = useState<'intro' | 'info' | 'friends'>('intro');
+  const [contentTab, setContentTab] = useState<'posts' | 'shares'>('posts');
   const [feedPage, setFeedPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [userShares, setUserShares] = useState<PostShare[]>([]);
+  const [sharesPage, setSharesPage] = useState(0);
+  const [hasMoreShares, setHasMoreShares] = useState(true);
 
   const loadProfile = async (page = 0, append = false) => {
     if (isMyProfile || !Number.isFinite(targetId)) return;
-    if (page === 0) setLoading(true);
+    if (page === 0) {
+      setLoading(true);
+      setFeedLoading(true);
+      if (!append) {
+        setFeed([]);
+        setUserShares([]);
+        setError('');
+      }
+    }
     else setLoadingMore(true);
     try {
       const [p, status, fList, posts] = await Promise.all([
@@ -55,6 +69,7 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
       ]);
       setProfile(p);
       setFriendStatus(status.status);
+      setFriendshipId(status.friendshipId);
       setFriends(fList);
       setFeed((current) => (append ? [...current, ...posts] : posts));
       if (posts.length < 10) setHasMore(false);
@@ -63,6 +78,7 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
       setError(err instanceof Error ? err.message : 'Không tải được hồ sơ');
     } finally {
       setLoading(false);
+      setFeedLoading(false);
       setLoadingMore(false);
     }
   };
@@ -71,10 +87,29 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
     loadProfile(0, false);
   }, [targetId, isMyProfile, currentUser.id]);
 
+  const loadUserShares = async (page = 0, append = false) => {
+    if (isMyProfile || !Number.isFinite(targetId)) return;
+    try {
+      const shares = await api.getUserShares(targetId, currentUser.id, page, 10);
+      setUserShares((current) => (append ? [...current, ...shares] : shares));
+      setHasMoreShares(shares.length === 10);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không tải được bài chia sẻ');
+    }
+  };
+
+  useEffect(() => {
+    setContentTab('posts');
+    setProfileTab('intro');
+    setSharesPage(0);
+    loadUserShares(0, false);
+  }, [targetId, isMyProfile, currentUser.id]);
+
   const refreshStatus = async () => {
     try {
       const status = await api.getFriendshipStatus(currentUser.id, targetId);
       setFriendStatus(status.status);
+      setFriendshipId(status.friendshipId);
       const fList = await api.getFriends(targetId);
       setFriends(fList);
       const posts = await api.getUserPosts(targetId, currentUser.id, 0, 10, true);
@@ -97,75 +132,86 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
 
   const sendRequest = async () => {
     setError('');
+    setFriendActionLoading(true);
     try {
-      await api.sendFriendRequest(currentUser.id, targetId);
+      const friendship = await api.sendFriendRequest(currentUser.id, targetId);
+      setFriendStatus(friendship.status === 'accepted' ? 'accepted' : 'pending');
+      setFriendshipId(friendship.id);
       await refreshStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không gửi được lời mời');
+    } finally {
+      setFriendActionLoading(false);
     }
+  };
+
+  const loadMoreShares = () => {
+    if (!hasMoreShares) return;
+    const next = sharesPage + 1;
+    setSharesPage(next);
+    loadUserShares(next, true);
   };
 
   const cancelRequest = async () => {
     setError('');
+    if (!friendshipId) return;
+    setFriendActionLoading(true);
     try {
-      // Find the friendship ID from the friends list
-      const friendship = friends.find(f => f.status === 'pending' && 
-        ((f.requesterId === currentUser.id && f.addresseeId === targetId) ||
-         (f.requesterId === targetId && f.addresseeId === currentUser.id)));
-      if (friendship) {
-        await api.rejectOrCancelFriendRequest(friendship.id, currentUser.id);
-      }
+      await api.rejectOrCancelFriendRequest(friendshipId, currentUser.id);
+      setFriendStatus('none');
+      setFriendshipId(null);
       await refreshStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không hủy được lời mời');
+    } finally {
+      setFriendActionLoading(false);
     }
   };
 
   const acceptRequest = async () => {
     setError('');
+    if (!friendshipId) return;
+    setFriendActionLoading(true);
     try {
-      // Find the friendship ID from the friends list
-      const friendship = friends.find(f => f.status === 'pending' && 
-        ((f.requesterId === currentUser.id && f.addresseeId === targetId) ||
-         (f.requesterId === targetId && f.addresseeId === currentUser.id)));
-      if (friendship) {
-        await api.acceptFriendRequest(friendship.id, currentUser.id);
-      }
+      await api.acceptFriendRequest(friendshipId, currentUser.id);
+      setFriendStatus('accepted');
       await refreshStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không chấp nhận được lời mời');
+    } finally {
+      setFriendActionLoading(false);
     }
   };
 
   const rejectRequest = async () => {
     setError('');
+    if (!friendshipId) return;
+    setFriendActionLoading(true);
     try {
-      // Find the friendship ID from the friends list
-      const friendship = friends.find(f => f.status === 'pending' && 
-        ((f.requesterId === currentUser.id && f.addresseeId === targetId) ||
-         (f.requesterId === targetId && f.addresseeId === currentUser.id)));
-      if (friendship) {
-        await api.rejectOrCancelFriendRequest(friendship.id, currentUser.id);
-      }
+      await api.rejectOrCancelFriendRequest(friendshipId, currentUser.id);
+      setFriendStatus('none');
+      setFriendshipId(null);
       await refreshStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không từ chối được lời mời');
+    } finally {
+      setFriendActionLoading(false);
     }
   };
 
   const unfriend = async () => {
     setError('');
+    if (!friendshipId) return;
+    setFriendActionLoading(true);
     try {
-      // Find the friendship ID from the friends list
-      const friendship = friends.find(f => f.status === 'accepted' && 
-        ((f.requesterId === currentUser.id && f.addresseeId === targetId) ||
-         (f.requesterId === targetId && f.addresseeId === currentUser.id)));
-      if (friendship) {
-        await api.unfriend(friendship.id, currentUser.id);
-      }
+      await api.unfriend(friendshipId, currentUser.id);
+      setFriendStatus('none');
+      setFriendshipId(null);
       await refreshStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không hủy kết bạn được');
+    } finally {
+      setFriendActionLoading(false);
     }
   };
 
@@ -193,29 +239,35 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
       case 'none':
         return (
           <div className="feed-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <button className="primary-button" type="button" onClick={sendRequest}>Kết bạn</button>
+            <button className="primary-button" type="button" onClick={sendRequest} disabled={friendActionLoading}>
+              {friendActionLoading ? 'Đang gửi...' : 'Kết bạn'}
+            </button>
             {showProtection ? protectedNotice : msgButton}
           </div>
         );
       case 'pending':
         return (
           <div className="feed-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <button className="chip" type="button" onClick={cancelRequest}>Hủy lờI mờI</button>
+            <button className="chip" type="button" onClick={cancelRequest} disabled={friendActionLoading}>
+              {friendActionLoading ? 'Đang xử lý...' : 'Hủy lời mời'}
+            </button>
             {showProtection ? protectedNotice : msgButton}
           </div>
         );
       case 'pending_incoming':
         return (
           <div className="feed-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <button className="primary-button" type="button" onClick={acceptRequest}>Chấp nhận</button>
-            <button className="chip" type="button" onClick={rejectRequest}>Từ chốI</button>
+            <button className="primary-button" type="button" onClick={acceptRequest} disabled={friendActionLoading}>Chấp nhận</button>
+            <button className="chip" type="button" onClick={rejectRequest} disabled={friendActionLoading}>Từ chối</button>
             {showProtection ? protectedNotice : msgButton}
           </div>
         );
       case 'accepted':
         return (
           <div className="feed-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <button className="chip" type="button" onClick={unfriend}>Hủy kết bạn</button>
+            <button className="chip" type="button" onClick={unfriend} disabled={friendActionLoading}>
+              {friendActionLoading ? 'Đang xử lý...' : 'Hủy kết bạn'}
+            </button>
             {msgButton}
           </div>
         );
@@ -224,13 +276,7 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
     }
   };
 
-  const fileToBase64 = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
+  const fileToBase64 = (file: File) => uploadFileUrl(file, 'comments');
 
   const loadFeed = async (page = 0, append = false) => {
     if (page === 0) setFeedLoading(true);
@@ -248,42 +294,6 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
     }
   };
 
-  const resetComposer = () => {
-    setComposerOpen(false);
-    setEditingData(null);
-  };
-
-  const handleComposerSuccess = async (msg?: string) => {
-    if (msg) setMessage(msg);
-    resetComposer();
-    setFeedPage(0);
-    await loadFeed(0, false);
-  };
-
-  const beginEdit = (postId: number) => {
-    const post = feed.find((item) => item.id === postId);
-    if (!post) return;
-    setEditingData({
-      id: post.id,
-      content: post.content,
-      media: post.media.map((item) => ({ mediaUrl: item.mediaUrl })),
-      visibility: post.visibility,
-    });
-    setComposerOpen(true);
-  };
-
-  const removePost = async (postId: number) => {
-    setError('');
-    try {
-      await api.deletePost(postId, currentUser.id);
-      setFeedPage(0);
-      await loadFeed(0, false);
-      setMessage('Đã xoá bài viết.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không xoá được bài viết');
-    }
-  };
-
   const likePost = async (postId: number) => {
     try {
       await api.toggleLike(postId, currentUser.id);
@@ -295,8 +305,8 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
 
   const submitComment = async (postId: number) => {
     const draft = commentDrafts[postId];
-    const content = draft?.content.trim();
-    if (!content) return;
+    const content = draft?.content.trim() ?? '';
+    if (!content && !draft?.media.length) return;
     await api.addComment(postId, currentUser.id, { content, media: draft.media });
     setCommentDrafts((current) => ({ ...current, [postId]: { content: '', media: [] } }));
     await loadFeed();
@@ -304,8 +314,8 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
 
   const submitReply = async (postId: number, commentId: number) => {
     const draft = replyDrafts[commentId];
-    const content = draft?.content.trim();
-    if (!content) return;
+    const content = draft?.content.trim() ?? '';
+    if (!content && !draft?.media.length) return;
     await api.replyComment(postId, commentId, currentUser.id, { content, media: draft.media });
     setReplyDrafts((current) => ({ ...current, [commentId]: { content: '', media: [] } }));
     setReplyTarget((current) => ({ ...current, [postId]: null }));
@@ -342,213 +352,186 @@ function UserProfilePage({ currentUser, onOpenMiniChat }: UserProfilePageProps) 
 
   const onPickCommentMedia = async (postId: number, files: FileList | null) => {
     if (!files?.length) return;
-    const picked = await Promise.all(Array.from(files).slice(0, 10).map((file) => fileToBase64(file)));
+    const picked = await fileToBase64(files[0]);
     setCommentDrafts((current) => ({
       ...current,
-      [postId]: { content: current[postId]?.content ?? '', media: [...(current[postId]?.media ?? []), ...picked].slice(0, 10) },
+      [postId]: { content: current[postId]?.content ?? '', media: [picked] },
     }));
   };
 
   const onPickReplyMedia = async (commentId: number, files: FileList | null) => {
     if (!files?.length) return;
-    const picked = await Promise.all(Array.from(files).slice(0, 10).map((file) => fileToBase64(file)));
+    const picked = await fileToBase64(files[0]);
     setReplyDrafts((current) => ({
       ...current,
-      [commentId]: { content: current[commentId]?.content ?? '', media: [...(current[commentId]?.media ?? []), ...picked].slice(0, 10) },
+      [commentId]: { content: current[commentId]?.content ?? '', media: [picked] },
     }));
   };
 
   if (isMyProfile) {
-    return <ProfilePage user={currentUser} />;
+    return <ProfilePage user={currentUser} onUpdateUser={onUpdateUser} />;
+  }
+
+  const acceptedFriends = friends.filter((friend) => friend.status === 'accepted');
+
+  if (loading && !profile) {
+    return <main className="profile-shell"><div className="empty-state card">Đang tải hồ sơ...</div></main>;
+  }
+
+  if (!profile) {
+    return (
+      <main className="profile-shell">
+        <div className="empty-state card">
+          <h3 className="empty-state-title">Không tìm thấy hồ sơ</h3>
+          <p className="empty-state-text">{error || 'Người dùng không tồn tại hoặc không thể truy cập.'}</p>
+        </div>
+      </main>
+    );
   }
 
   return (
-    <div className="profile-shell">
-      <aside className="stack">
-        <section className="panel profile-tabs-panel">
-          <div className="profile-tabs">
-            <button className={profileTab === 'intro' ? 'profile-tab active' : 'profile-tab'} type="button" onClick={() => setProfileTab('intro')}>Giới thiệu</button>
-            <button className={profileTab === 'friends' ? 'profile-tab active' : 'profile-tab'} type="button" onClick={() => setProfileTab('friends')}>Bạn bè</button>
-          </div>
+    <main className="profile-shell">
+      <ProfileHeader
+        profile={profile}
+        stats={[
+          { label: 'Bài viết', value: feed.length },
+          { label: 'Chia sẻ', value: userShares.length },
+          { label: 'Bạn bè', value: acceptedFriends.length },
+        ]}
+        actions={renderFriendAction()}
+      />
 
-          {profileTab === 'intro' && (
-            <div className="profile-tab-content">
-              <div className="profile-intro-head">
-                <div className="avatar-preview">{profile?.avatar ? <img src={profile.avatar} alt={profile.fullName} /> : (profile?.fullName ?? 'U').charAt(0).toUpperCase()}</div>
-                <div>
-                  <h2 style={{ margin: 0 }}>{profile?.fullName ?? 'Đang tải...'}</h2>
-                  <p className="subtle" style={{ margin: '4px 0 0' }}>{profile?.email}</p>
-                </div>
+      {error && <div className="form-error">{error}</div>}
+
+      <div className="profile-tabs">
+        <button className={`profile-tab ${profileTab === 'intro' ? 'active' : ''}`} type="button" onClick={() => setProfileTab('intro')}>Giới thiệu</button>
+        <button className={`profile-tab ${profileTab === 'info' ? 'active' : ''}`} type="button" onClick={() => setProfileTab('info')}>Thông tin</button>
+        <button className={`profile-tab ${profileTab === 'friends' ? 'active' : ''}`} type="button" onClick={() => setProfileTab('friends')}>Bạn bè</button>
+      </div>
+
+      <div style={{ marginTop: 'var(--spacing-lg)' }}>
+        {profileTab === 'intro' && (
+          <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 'var(--spacing-lg)' }}>Giới thiệu</h3>
+            <div className="flex gap-lg items-center mb-lg">
+              <div className="post-avatar" style={{ width: 80, height: 80 }}>
+                {profile.avatar ? <img src={profile.avatar} alt={profile.fullName} /> : <div className="post-avatar-placeholder">{profile.fullName.charAt(0).toUpperCase()}</div>}
               </div>
-              <p className="lead">{profile?.bio || 'Chưa có bio.'}</p>
-              <div className="intro-details">
-                {profile?.faculty && <div className="intro-detail-row"><span className="subtle">Khoa:</span> {profile.faculty}</div>}
-                {profile?.className && <div className="intro-detail-row"><span className="subtle">Lớp:</span> {profile.className}</div>}
-                {profile?.academicYear && <div className="intro-detail-row"><span className="subtle">Niên khóa:</span> {profile.academicYear}</div>}
-              </div>
-              {renderFriendAction()}
-              {error && <div className="form-error" style={{ marginTop: 8 }}>{error}</div>}
+              <div><h2>{profile.fullName}</h2><p className="text-muted">{profile.email}</p></div>
             </div>
-          )}
+            <p className="lead">{profile.bio || 'Chưa có giới thiệu.'}</p>
+            <div className="flex flex-col gap-md" style={{ maxWidth: 500 }}>
+              {getRoleProfileDetails(profile).map(([label, value]) => (
+                <div key={label}><span className="text-muted">{label}: </span><strong>{value}</strong></div>
+              ))}
+            </div>
+          </div>
+        )}
 
-          {profileTab === 'friends' && (
-            <div className="profile-tab-content">
-              <div className="friends-panel-header">
-                <span className="eyebrow">Bạn bè ({friends.length})</span>
-                {friends.length > 0 && (
-                  <button className="ghost-button" type="button" onClick={() => navigate(`/friends`)}>Xem tất cả</button>
-                )}
-              </div>
-              <div className="profile-friends-grid">
-                {friends.length === 0 && <div className="subtle">Chưa có bạn bè nào.</div>}
-                {friends.slice(0, 6).map((f) => {
-                  const isRequester = f.requesterId === targetId;
-                  const fid = isRequester ? f.addresseeId : f.requesterId;
-                  const fname = isRequester ? f.addresseeName : f.requesterName;
-                  const favatar = isRequester ? f.addresseeAvatar : f.requesterAvatar;
+        {profileTab === 'info' && (
+          <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 'var(--spacing-lg)' }}>Thông tin chi tiết</h3>
+            <div className="flex flex-col gap-md" style={{ maxWidth: 600 }}>
+              {[
+                ['User ID', `#${profile.id}`],
+                ['Email', profile.email],
+                ['Họ và tên', profile.fullName],
+                ['Bio', profile.bio || 'Chưa có'],
+                ...getRoleProfileDetails(profile),
+              ].map(([label, value]) => (
+                <div className="flex justify-between items-center" style={{ padding: 'var(--spacing-md) 0', borderBottom: '1px solid var(--gray-100)' }} key={label}>
+                  <span className="text-muted">{label}</span><strong>{value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {profileTab === 'friends' && (
+          <div className="card" style={{ padding: 'var(--spacing-xl)' }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 'var(--spacing-lg)' }}>Bạn bè ({acceptedFriends.length})</h3>
+            {acceptedFriends.length === 0 ? (
+              <div className="empty-state"><h3 className="empty-state-title">Chưa có bạn bè</h3></div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 'var(--spacing-md)' }}>
+                {acceptedFriends.slice(0, 12).map((friend) => {
+                  const isRequester = friend.requesterId === targetId;
+                  const id = isRequester ? friend.addresseeId : friend.requesterId;
+                  const name = isRequester ? friend.addresseeName : friend.requesterName;
+                  const avatar = isRequester ? friend.addresseeAvatar : friend.requesterAvatar;
                   return (
-                    <Link key={f.id} to={`/users/${fid}`} className="profile-friend-tile" title={fname}>
-                      <div className="profile-friend-avatar">
-                        {favatar ? <img src={favatar} alt={fname} /> : fname.charAt(0).toUpperCase()}
+                    <Link className="profile-friend-tile" to={`/users/${id}`} key={friend.id}>
+                      <div className="post-avatar" style={{ width: 64, height: 64 }}>
+                        {avatar ? <img src={avatar} alt={name} /> : <div className="post-avatar-placeholder">{name.charAt(0).toUpperCase()}</div>}
                       </div>
-                      <span className="profile-friend-name">{fname}</span>
+                      <strong>{name}</strong>
                     </Link>
                   );
                 })}
               </div>
-            </div>
-          )}
-        </section>
-      </aside>
-
-      <section className="stack">
-        <PostComposerBar
-          user={currentUser}
-          title="Bạn muốn chia sẻ điều gì?"
-          subtitle="Thanh đăng bài nằm ngay phía trên để đăng nhanh mà không làm rối trang cá nhân."
-          buttonLabel="Tạo bài viết"
-          onOpen={() => setComposerOpen(true)}
-        />
-
-        <section className="feed">
-          {feed.map((post) => (
-            <PostCard
-              key={post.id}
-              post={post}
-              user={currentUser}
-              expandedPost={expandedPosts[post.id] ?? false}
-              expandedComments={expandedComments[post.id] ?? false}
-              commentDraft={commentDrafts[post.id]}
-              replyDrafts={replyDrafts}
-              replyTarget={replyTarget}
-              commentLikeState={commentLikeState}
-              onToggleExpandedPost={(postId) => setExpandedPosts((current) => ({ ...current, [postId]: !current[postId] }))}
-              onToggleExpandedComments={(postId) => setExpandedComments((current) => ({ ...current, [postId]: !current[postId] }))}
-              onBeginEdit={() => beginEdit(post.id)}
-              onRemove={removePost}
-              onLikePost={likePost}
-              onSubmitComment={submitComment}
-              onSubmitReply={submitReply}
-              onToggleCommentLike={toggleCommentLike}
-              onSetCommentDraft={setCommentDrafts}
-              onSetReplyDrafts={setReplyDrafts}
-              onSetReplyTarget={setReplyTarget}
-              onOpenViewer={setViewerImage}
-              onPickCommentMedia={onPickCommentMedia}
-              onPickReplyMedia={onPickReplyMedia}
-              onUpdateComment={updateComment}
-              onDeleteComment={deleteComment}
-            />
-          ))}
-          {hasMore && (
-            <div style={{ textAlign: 'center', marginTop: 16 }}>
-              <button className="primary-button" type="button" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? 'Đang tải...' : 'Tải thêm'}
-              </button>
-            </div>
-          )}
-          {!feedLoading && !feed.length && <div className="subtle">Chưa có bài viết nào.</div>}
-        </section>
-      </section>
-
-      <aside className="sidebar">
-        <section className="panel sticky">
-          <span className="eyebrow">Xu hướng</span>
-          <div className="trend-item">
-            <div>
-              <strong>#design</strong>
-              <div className="subtle">Clean social UI</div>
-            </div>
-            <span className="subtle">12.4K</span>
+            )}
           </div>
-          <div className="trend-item">
-            <div>
-              <strong>#profile</strong>
-              <div className="subtle">User settings</div>
-            </div>
-            <span className="subtle">8.1K</span>
-          </div>
-          <div className="trend-item">
-            <div>
-              <strong>#frontend</strong>
-              <div className="subtle">React + TSX</div>
-            </div>
-            <span className="subtle">19.8K</span>
-          </div>
-        </section>
+        )}
+      </div>
 
-        <section className="panel">
-          <span className="eyebrow">Bài viết nổi bật</span>
-          <div className="stack">
-            {feed.slice(0, 5).map((post) => (
-              <div className="suggest-item" key={post.id}>
-                <div>
-                  <strong>{new Date(post.createdAt).toLocaleDateString()}</strong>
-                  <div className="subtle">
-                    {post.likeCount} likes · {post.commentCount} comments
-                  </div>
-                </div>
-              </div>
+      <section style={{ marginTop: 'var(--spacing-xl)' }}>
+        <div className="profile-tabs">
+          <button className={`profile-tab ${contentTab === 'posts' ? 'active' : ''}`} type="button" onClick={() => setContentTab('posts')}>Bài đăng</button>
+          <button className={`profile-tab ${contentTab === 'shares' ? 'active' : ''}`} type="button" onClick={() => setContentTab('shares')}>Chia sẻ</button>
+        </div>
+
+        {contentTab === 'posts' && (
+          <section className="feed">
+            {feed.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                user={currentUser}
+                expandedPost={expandedPosts[post.id] ?? false}
+                expandedComments={expandedComments[post.id] ?? false}
+                commentDraft={commentDrafts[post.id]}
+                replyDrafts={replyDrafts}
+                replyTarget={replyTarget}
+                commentLikeState={commentLikeState}
+                onToggleExpandedPost={(postId) => setExpandedPosts((current) => ({ ...current, [postId]: !current[postId] }))}
+                onToggleExpandedComments={(postId) => setExpandedComments((current) => ({ ...current, [postId]: !current[postId] }))}
+                onBeginEdit={() => undefined}
+                onRemove={() => undefined}
+                onLikePost={likePost}
+                onSubmitComment={submitComment}
+                onSubmitReply={submitReply}
+                onToggleCommentLike={toggleCommentLike}
+                onSetCommentDraft={setCommentDrafts}
+                onSetReplyDrafts={setReplyDrafts}
+                onSetReplyTarget={setReplyTarget}
+                onOpenViewer={setViewerImage}
+                onPickCommentMedia={onPickCommentMedia}
+                onPickReplyMedia={onPickReplyMedia}
+                onUpdateComment={updateComment}
+                onDeleteComment={deleteComment}
+                onSharePost={() => loadFeed(0, false)}
+              />
             ))}
-            {!feed.length && <div className="subtle">Chưa có bài viết nào.</div>}
-          </div>
-        </section>
-      </aside>
+            {!feedLoading && feed.length === 0 && <div className="empty-state card"><h3 className="empty-state-title">Chưa có bài đăng nào</h3></div>}
+            {hasMore && <div style={{ textAlign: 'center', marginTop: 16 }}><button className="btn btn-secondary" type="button" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Đang tải...' : 'Tải thêm'}</button></div>}
+          </section>
+        )}
+
+        {contentTab === 'shares' && (
+          <section className="feed">
+            {userShares.map((share) => <ShareCard key={share.id} share={share} user={currentUser} />)}
+            {!userShares.length && <div className="empty-state card"><h3 className="empty-state-title">Chưa có bài chia sẻ nào</h3></div>}
+            {hasMoreShares && <div style={{ textAlign: 'center', marginTop: 16 }}><button className="btn btn-secondary" type="button" onClick={loadMoreShares}>Tải thêm chia sẻ</button></div>}
+          </section>
+        )}
+      </section>
 
       {viewerImage && (
         <div className="image-viewer" onClick={() => setViewerImage(null)} role="presentation">
           <img src={viewerImage} alt="viewer" />
         </div>
       )}
-
-      {composerOpen && (
-        <div className="modal-backdrop" role="presentation" onClick={() => !loading && resetComposer()}>
-          <div className="post-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="side-row">
-              <div>
-                <span className="eyebrow">{editingData ? 'Chỉnh sửa bài viết' : 'Tạo bài viết'}</span>
-                <h1 className="section-title">Bạn đang nghĩ gì?</h1>
-              </div>
-              <button className="ghost-button" type="button" onClick={() => resetComposer()}>
-                Đóng
-              </button>
-            </div>
-
-            <PostComposer
-              key={editingData?.id || 'new'}
-              user={currentUser}
-              mode="regular"
-              showVisibility={!editingData}
-              editingData={editingData}
-              onSuccess={() => handleComposerSuccess(editingData ? 'Đã cập nhật bài viết.' : 'Đã đăng bài viết.')}
-              onClose={() => resetComposer()}
-            />
-
-            {message && <div className="form-success">{message}</div>}
-          </div>
-        </div>
-      )}
-    </div>
+    </main>
   );
 }
 

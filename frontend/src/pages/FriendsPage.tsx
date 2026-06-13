@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { confirmAction } from '../lib/feedback';
 import type { Friendship, User } from '../types';
 
 type FriendsPageProps = {
@@ -38,7 +39,7 @@ function FriendsPage({ user }: FriendsPageProps) {
   }, [user.id]);
 
   const handleUnfriend = async (friendshipId: number) => {
-    if (!window.confirm('Bạn có chắc muốn hủy kết bạn?')) return;
+    if (!await confirmAction('Bạn có chắc muốn hủy kết bạn?', { title: 'Hủy kết bạn', confirmLabel: 'Hủy kết bạn', danger: true })) return;
     setError('');
     try {
       await api.unfriend(friendshipId, user.id);
@@ -71,6 +72,7 @@ function FriendsPage({ user }: FriendsPageProps) {
   const getFriendUser = (f: Friendship) => {
     const isRequester = f.requesterId === user.id;
     return {
+      friendshipId: f.id,
       id: isRequester ? f.addresseeId : f.requesterId,
       name: isRequester ? f.addresseeName : f.requesterName,
       avatar: isRequester ? f.addresseeAvatar : f.requesterAvatar,
@@ -144,7 +146,7 @@ function FriendsPage({ user }: FriendsPageProps) {
                     <button
                       className="chip danger-chip"
                       type="button"
-                      onClick={() => handleUnfriend(f.id)}
+                      onClick={() => handleUnfriend(f.friendshipId)}
                     >
                       Hủy kết bạn
                     </button>

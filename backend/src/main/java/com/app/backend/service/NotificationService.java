@@ -120,9 +120,12 @@ public class NotificationService {
     }
 
     @Transactional
-    public void markAsRead(Long notificationId) {
+    public void markAsRead(Long notificationId, Long currentUserId) {
         Notification n = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new IllegalArgumentException("Notification not found"));
+        if (!n.getRecipient().getId().equals(currentUserId)) {
+            throw new IllegalArgumentException("You cannot update another user's notification");
+        }
         n.setIsRead(true);
         notificationRepository.save(n);
     }

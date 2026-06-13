@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, resolveMediaUrl } from '../lib/api';
+import { uploadFileUrl } from '../lib/upload';
+import { confirmAction } from '../lib/feedback';
 import GroupPostCard from '../components/GroupPostCard';
 import GroupChat from '../components/GroupChat';
 import PollCreator from '../components/PollCreator';
-import PostComposer from '../components/PostComposer';
-import type { Group, GroupMember, GroupPost, GroupJoinRequest, PostComment, User } from '../types';
+import PostComposerBar from '../components/PostComposerBar';
+import PostComposerModal from '../components/PostComposerModal';
+import type { Group, GroupMember, GroupPost, GroupJoinRequest, User } from '../types';
 
 type Draft = { content: string; media: string[] };
 type CommentLikeState = Record<number, { likeCount: number; likedByMe: boolean }>;
@@ -39,10 +42,8 @@ export default function GroupDetailPage() {
     privacy: 'public' as 'public' | 'private',
     approvalRequired: false,
   });
-  const [showAvatarUpload, setShowAvatarUpload] = useState(false);
-  const [showCoverUpload, setShowCoverUpload] = useState(false);
-  const [newAvatar, setNewAvatar] = useState<string | null>(null);
-  const [newCover, setNewCover] = useState<string | null>(null);
+  const [uploadingGroupAvatar, setUploadingGroupAvatar] = useState(false);
+  const [uploadingGroupCover, setUploadingGroupCover] = useState(false);
   const [showPollCreator, setShowPollCreator] = useState(false);
 
   // Advisor management states
@@ -73,15 +74,10 @@ export default function GroupDetailPage() {
   const [replyTarget, setReplyTarget] = useState<Record<number, number | null>>({});
   const [commentLikeState, setCommentLikeState] = useState<CommentLikeState>({});
   const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
-  // File to base64 converter
-  const fileToBase64 = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
+  const fileToBase64 = (file: File) => uploadFileUrl(file, 'comments');
 
   useEffect(() => {
     loadGroupData();
@@ -91,7 +87,8 @@ export default function GroupDetailPage() {
     if (!groupId) return;
     setLoading(true);
     try {
-      const groupData = await api.getGroup(parseInt(groupId));
+      const parsedGroupId = parseInt(groupId);
+      const groupData = await api.getGroup(parsedGroupId);
       setGroup(groupData);
       setEditSettings({
         name: groupData.name,
@@ -101,34 +98,43 @@ export default function GroupDetailPage() {
       });
 
       // Check if user is member
+      let currentRole: string | null = null;
       try {
-        const membersData = await api.getGroupMembers(parseInt(groupId));
+        const membersData = await api.getGroupMembers(parsedGroupId);
         setMembers(membersData);
         const myMembership = membersData.find((m) => m.userId === userId);
         if (myMembership) {
           setIsMember(true);
           setMyRole(myMembership.role);
+          currentRole = myMembership.role;
+        } else {
+          setIsMember(false);
+          setMyRole(null);
         }
       } catch {
         setIsMember(false);
+        setMyRole(null);
+        setMembers([]);
       }
 
       // Load posts
       try {
-        const postsData = await api.getGroupPosts(parseInt(groupId), userId);
+        const postsData = await api.getGroupPosts(parsedGroupId, userId);
         setPosts(postsData);
       } catch {
         setPosts([]);
       }
 
       // Load join requests if admin
-      if (myRole === 'gold_key' || myRole === 'silver_key') {
+      if (currentRole === 'gold_key' || currentRole === 'silver_key') {
         try {
-          const requests = await api.getPendingJoinRequests(parseInt(groupId), userId);
+          const requests = await api.getPendingJoinRequests(parsedGroupId, userId);
           setJoinRequests(requests);
         } catch {
           setJoinRequests([]);
         }
+      } else {
+        setJoinRequests([]);
       }
     } catch (error) {
       console.error('Failed to load group:', error);
@@ -154,7 +160,7 @@ export default function GroupDetailPage() {
 
   const handleLeaveGroup = async () => {
     if (!groupId) return;
-    if (!confirm('Bạn có chắc muốn rời nhóm?')) return;
+    if (!await confirmAction('Bạn có chắc muốn rời nhóm?', { title: 'Rời nhóm', confirmLabel: 'Rời nhóm', danger: true })) return;
     try {
       await api.leaveGroup(parseInt(groupId), userId);
       alert('Đã rời nhóm.');
@@ -171,6 +177,52 @@ export default function GroupDetailPage() {
     alert('Đã đăng bài thành công!');
   };
 
+  const handleGroupAvatarUpload = async (file: File | null) => {
+    if (!file || !groupId) return;
+    setUploadingGroupAvatar(true);
+    try {
+      const avatarUrl = await uploadFileUrl(file, 'groups');
+      const updated = await api.updateGroup(parseInt(groupId), userId, {
+        name: editSettings.name,
+        description: editSettings.description,
+        privacy: editSettings.privacy,
+        approvalRequired: editSettings.approvalRequired,
+        avatar: avatarUrl,
+      });
+      setGroup(updated);
+      await loadGroupData();
+      alert('Đã cập nhật avatar nhóm!');
+    } catch (error) {
+      console.error('Failed to update avatar:', error);
+      alert('Không thể cập nhật avatar nhóm.');
+    } finally {
+      setUploadingGroupAvatar(false);
+    }
+  };
+
+  const handleGroupCoverUpload = async (file: File | null) => {
+    if (!file || !groupId) return;
+    setUploadingGroupCover(true);
+    try {
+      const coverUrl = await uploadFileUrl(file, 'covers');
+      const updated = await api.updateGroup(parseInt(groupId), userId, {
+        name: editSettings.name,
+        description: editSettings.description,
+        privacy: editSettings.privacy,
+        approvalRequired: editSettings.approvalRequired,
+        cover: coverUrl,
+      });
+      setGroup(updated);
+      await loadGroupData();
+      alert('Đã cập nhật ảnh bìa nhóm!');
+    } catch (error) {
+      console.error('Failed to update cover:', error);
+      alert('Không thể cập nhật ảnh bìa nhóm.');
+    } finally {
+      setUploadingGroupCover(false);
+    }
+  };
+
   const handleApprovePost = async (postId: number) => {
     if (!groupId) return;
     try {
@@ -183,7 +235,7 @@ export default function GroupDetailPage() {
 
   const handleRejectPost = async (postId: number) => {
     if (!groupId) return;
-    if (!confirm('Bạn có chắc muốn từ chối bài viết this?')) return;
+    if (!await confirmAction('Bạn có chắc muốn từ chối bài viết này?', { title: 'Từ chối bài viết', confirmLabel: 'Từ chối', danger: true })) return;
     try {
       await api.rejectGroupPost(parseInt(groupId), postId, userId);
       loadGroupData();
@@ -194,7 +246,7 @@ export default function GroupDetailPage() {
 
   const handleDeletePost = async (postId: number) => {
     if (!groupId) return;
-    if (!confirm('Bạn có chắc muốn xóa bài viết this?')) return;
+    if (!await confirmAction('Bạn có chắc muốn xóa bài viết này?', { title: 'Xóa bài viết', confirmLabel: 'Xóa', danger: true })) return;
     try {
       await api.deleteGroupPost(parseInt(groupId), postId, userId);
       setPosts(posts.filter((p) => p.postId !== postId));
@@ -214,7 +266,7 @@ export default function GroupDetailPage() {
 
   const handleComment = async (postId: number) => {
     const draft = commentDrafts[postId];
-    if (!draft?.content.trim()) return;
+    if (!draft || (!draft.content.trim() && !draft.media.length)) return;
     try {
       await api.addCommentGroupPost(parseInt(groupId!), postId, userId, { content: draft.content, media: draft.media });
       setCommentDrafts(current => ({ ...current, [postId]: { content: '', media: [] } }));
@@ -226,7 +278,7 @@ export default function GroupDetailPage() {
 
   const handleReply = async (postId: number, commentId: number) => {
     const draft = replyDrafts[commentId];
-    if (!draft?.content.trim()) return;
+    if (!draft || (!draft.content.trim() && !draft.media.length)) return;
     try {
       await api.addCommentGroupPost(parseInt(groupId!), postId, userId, { content: draft.content, media: draft.media, parentCommentId: commentId });
       setReplyDrafts(current => ({ ...current, [commentId]: { content: '', media: [] } }));
@@ -251,31 +303,31 @@ export default function GroupDetailPage() {
 
   const handlePickCommentMedia = async (postId: number, files: FileList | null) => {
     if (!files?.length) return;
-    const picked = Array.from(files).slice(0, 10);
-    const encoded = await Promise.all(picked.map((file) => fileToBase64(file)));
+    const encoded = await fileToBase64(files[0]);
     setCommentDrafts(current => ({
       ...current,
-      [postId]: { content: current[postId]?.content ?? '', media: [...(current[postId]?.media ?? []), ...encoded].slice(0, 10) },
+      [postId]: { content: current[postId]?.content ?? '', media: [encoded] },
     }));
   };
 
   const handlePickReplyMedia = async (commentId: number, files: FileList | null) => {
     if (!files?.length) return;
-    const picked = Array.from(files).slice(0, 10);
-    const encoded = await Promise.all(picked.map((file) => fileToBase64(file)));
+    const encoded = await fileToBase64(files[0]);
     setReplyDrafts(current => ({
       ...current,
-      [commentId]: { content: current[commentId]?.content ?? '', media: [...(current[commentId]?.media ?? []), ...encoded].slice(0, 10) },
+      [commentId]: { content: current[commentId]?.content ?? '', media: [encoded] },
     }));
   };
 
-  const handleApproveMember = async (requestId: number, requestUserId: number) => {
+  const handleApproveMember = async (requestId: number) => {
     if (!groupId) return;
     try {
       await api.approveJoinRequest(parseInt(groupId), requestId, userId);
-      loadGroupData();
+      setJoinRequests((current) => current.filter((request) => request.id !== requestId));
+      await loadGroupData();
     } catch (error) {
       console.error('Failed to approve member:', error);
+      alert(error instanceof Error ? error.message : 'Không thể duyệt thành viên.');
     }
   };
 
@@ -283,15 +335,17 @@ export default function GroupDetailPage() {
     if (!groupId) return;
     try {
       await api.rejectJoinRequest(parseInt(groupId), requestId, userId);
-      loadGroupData();
+      setJoinRequests((current) => current.filter((request) => request.id !== requestId));
+      await loadGroupData();
     } catch (error) {
       console.error('Failed to reject member:', error);
+      alert(error instanceof Error ? error.message : 'Không thể từ chối yêu cầu.');
     }
   };
 
   const handleRemoveMember = async (memberId: number) => {
     if (!groupId) return;
-    if (!confirm('Bạn có chắc muốn xóa thành viên này khỏi nhóm?')) return;
+    if (!await confirmAction('Bạn có chắc muốn xóa thành viên này khỏi nhóm?', { title: 'Xóa thành viên', confirmLabel: 'Xóa khỏi nhóm', danger: true })) return;
     try {
       await api.removeMember(parseInt(groupId), memberId, userId);
       loadGroupData();
@@ -336,7 +390,7 @@ export default function GroupDetailPage() {
 
   const handleDeleteGroup = async () => {
     if (!groupId) return;
-    if (!confirm('Bạn có chắc muốn xóa nhóm? Hành động này không thể hoàn tác.')) return;
+    if (!await confirmAction('Bạn có chắc muốn xóa nhóm? Hành động này không thể hoàn tác.', { title: 'Xóa nhóm', confirmLabel: 'Xóa nhóm', danger: true })) return;
     try {
       await api.deleteGroup(parseInt(groupId), userId);
       navigate('/groups');
@@ -466,7 +520,8 @@ export default function GroupDetailPage() {
       {/* Group Header */}
       <div
         style={{
-          background: group.cover || '#e4e6eb',
+          backgroundColor: '#e4e6eb',
+          backgroundImage: group.cover ? `url("${resolveMediaUrl(group.cover)}")` : undefined,
           height: '200px',
           borderRadius: '8px',
           backgroundSize: 'cover',
@@ -478,7 +533,8 @@ export default function GroupDetailPage() {
         {isAdmin && (
           <>
             <button
-              onClick={() => setShowCoverUpload(true)}
+              onClick={() => coverInputRef.current?.click()}
+              disabled={uploadingGroupCover}
               style={{
                 position: 'absolute',
                 top: '10px',
@@ -498,7 +554,8 @@ export default function GroupDetailPage() {
               📷 Đổi ảnh bìa
             </button>
             <button
-              onClick={() => setShowAvatarUpload(true)}
+              onClick={() => avatarInputRef.current?.click()}
+              disabled={uploadingGroupAvatar}
               style={{
                 position: 'absolute',
                 bottom: '10px',
@@ -528,7 +585,8 @@ export default function GroupDetailPage() {
             width: '80px',
             height: '80px',
             borderRadius: '8px',
-            background: group.avatar || '#1876f2',
+            backgroundColor: '#1876f2',
+            backgroundImage: group.avatar ? `url("${resolveMediaUrl(group.avatar)}")` : undefined,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             border: '3px solid #fff',
@@ -542,203 +600,28 @@ export default function GroupDetailPage() {
           {!group.avatar && '👥'}
         </div>
       </div>
-
-      {/* Avatar Upload Modal */}
-      {showAvatarUpload && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-          onClick={() => { setShowAvatarUpload(false); setNewAvatar(null); }}
-        >
-          <div
-            style={{
-              background: '#fff',
-              padding: '24px',
-              borderRadius: '8px',
-              width: '100%',
-              maxWidth: '400px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 style={{ marginBottom: '20px' }}>Đổi ảnh đại diện nhóm</h2>
-            {newAvatar ? (
-              <div style={{ marginBottom: '16px' }}>
-                <img src={newAvatar} alt="preview" style={{ width: '100%', borderRadius: '8px' }} />
-              </div>
-            ) : (
-              <div
-                style={{
-                  border: '2px dashed #ddd',
-                  borderRadius: '8px',
-                  padding: '40px',
-                  textAlign: 'center',
-                  marginBottom: '16px',
-                  cursor: 'pointer',
-                }}
-                onClick={() => document.getElementById('avatar-input')?.click()}
-              >
-                <div style={{ fontSize: '48px', marginBottom: '8px' }}>📷</div>
-                <div style={{ color: '#65676b' }}>Nhấp để chọn ảnh</div>
-              </div>
-            )}
-            <input
-              id="avatar-input"
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  const reader = new FileReader();
-                  reader.onload = (ev) => setNewAvatar(ev.target?.result as string);
-                  reader.readAsDataURL(file);
-                }
-              }}
-            />
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button
-                className="btn btn-secondary"
-                onClick={() => { setShowAvatarUpload(false); setNewAvatar(null); }}
-                style={{ padding: '10px 20px' }}
-              >
-                Hủy
-              </button>
-              {newAvatar && (
-                <button
-                  className="btn btn-primary"
-                  onClick={async () => {
-                    if (!groupId) return;
-                    try {
-                      await api.updateGroup(parseInt(groupId), userId, { ...editSettings, avatar: newAvatar! });
-                      loadGroupData();
-                      setShowAvatarUpload(false);
-                      setNewAvatar(null);
-                      alert('Đã cập nhật ảnh đại diện!');
-                    } catch (error) {
-                      console.error('Failed to update avatar:', error);
-                      alert('Không thể cập nhật ảnh đại diện.');
-                    }
-                  }}
-                  style={{ padding: '10px 20px' }}
-                >
-                  Lưu
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Cover Upload Modal */}
-      {showCoverUpload && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-          onClick={() => { setShowCoverUpload(false); setNewCover(null); }}
-        >
-          <div
-            style={{
-              background: '#fff',
-              padding: '24px',
-              borderRadius: '8px',
-              width: '100%',
-              maxWidth: '500px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 style={{ marginBottom: '20px' }}>Đổi ảnh bìa nhóm</h2>
-            {newCover ? (
-              <div style={{ marginBottom: '16px' }}>
-                <img src={newCover} alt="preview" style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '8px' }} />
-              </div>
-            ) : (
-              <div
-                style={{
-                  border: '2px dashed #ddd',
-                  borderRadius: '8px',
-                  padding: '40px',
-                  textAlign: 'center',
-                  marginBottom: '16px',
-                  cursor: 'pointer',
-                  height: '150px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexDirection: 'column',
-                }}
-                onClick={() => document.getElementById('cover-input')?.click()}
-              >
-                <div style={{ fontSize: '48px', marginBottom: '8px' }}>🖼️</div>
-                <div style={{ color: '#65676b' }}>Nhấp để chọn ảnh bìa</div>
-              </div>
-            )}
-            <input
-              id="cover-input"
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  const reader = new FileReader();
-                  reader.onload = (ev) => setNewCover(ev.target?.result as string);
-                  reader.readAsDataURL(file);
-                }
-              }}
-            />
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button
-                className="btn btn-secondary"
-                onClick={() => { setShowCoverUpload(false); setNewCover(null); }}
-                style={{ padding: '10px 20px' }}
-              >
-                Hủy
-              </button>
-              {newCover && (
-                <button
-                  className="btn btn-primary"
-                  onClick={async () => {
-                    if (!groupId) return;
-                    try {
-                      await api.updateGroup(parseInt(groupId), userId, { ...editSettings, cover: newCover! });
-                      loadGroupData();
-                      setShowCoverUpload(false);
-                      setNewCover(null);
-                      alert('Đã cập nhật ảnh bìa!');
-                    } catch (error) {
-                      console.error('Failed to update cover:', error);
-                      alert('Không thể cập nhật ảnh bìa.');
-                    }
-                  }}
-                  style={{ padding: '10px 20px' }}
-                >
-                  Lưu
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <input
+        ref={avatarInputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={async (e) => {
+          const file = e.target.files?.[0] ?? null;
+          e.currentTarget.value = '';
+          await handleGroupAvatarUpload(file);
+        }}
+      />
+      <input
+        ref={coverInputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={async (e) => {
+          const file = e.target.files?.[0] ?? null;
+          e.currentTarget.value = '';
+          await handleGroupCoverUpload(file);
+        }}
+      />
 
       <div style={{ marginTop: '50px', marginBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -856,7 +739,7 @@ export default function GroupDetailPage() {
         >
           Thành viên
         </button>
-        {isAdmin && joinRequests.length > 0 && (
+        {isAdmin && (
           <button
             className={`tab-btn ${activeTab === 'requests' ? 'active' : ''}`}
             onClick={() => setActiveTab('requests')}
@@ -900,14 +783,14 @@ export default function GroupDetailPage() {
       {activeTab === 'posts' && (
         <div>
           {isMember && (
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <button
-                className="btn btn-primary"
-                onClick={() => setShowPostModal(true)}
-                style={{ padding: '10px 20px' }}
-              >
-                + Đăng bài
-              </button>
+            <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
+              <PostComposerBar
+                user={user}
+                title={`Đăng bài trong ${group?.name || 'nhóm'}`}
+                subtitle="Chia sẻ nội dung, hình ảnh, video hoặc tệp với các thành viên"
+                buttonLabel="Tạo bài viết"
+                onOpen={() => setShowPostModal(true)}
+              />
               {isAdmin && (
                 <button
                   className="btn btn-secondary"
@@ -987,7 +870,8 @@ export default function GroupDetailPage() {
                       width: '48px',
                       height: '48px',
                       borderRadius: '50%',
-                      background: member.userAvatar || '#e4e6eb',
+                      backgroundColor: '#e4e6eb',
+                      backgroundImage: member.userAvatar ? `url("${resolveMediaUrl(member.userAvatar)}")` : undefined,
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
                     }}
@@ -1071,7 +955,8 @@ export default function GroupDetailPage() {
                       width: '48px',
                       height: '48px',
                       borderRadius: '50%',
-                      background: request.userAvatar || '#e4e6eb',
+                      backgroundColor: '#e4e6eb',
+                      backgroundImage: request.userAvatar ? `url("${resolveMediaUrl(request.userAvatar)}")` : undefined,
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
                     }}
@@ -1087,7 +972,7 @@ export default function GroupDetailPage() {
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                       className="btn btn-primary"
-                      onClick={() => handleApproveMember(request.id, request.userId)}
+                      onClick={() => handleApproveMember(request.id)}
                       style={{ padding: '6px 16px' }}
                     >
                       Duyệt
@@ -1138,27 +1023,14 @@ export default function GroupDetailPage() {
 
       {/* Create Post Modal */}
       {showPostModal && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setShowPostModal(false)}>
-          <div className="post-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="side-row">
-              <div>
-                <span className="eyebrow">Tạo bài viết</span>
-                <h1 className="section-title">Đăng bài trong nhóm {group?.name}</h1>
-              </div>
-              <button className="ghost-button" type="button" onClick={() => setShowPostModal(false)}>
-                Đóng
-              </button>
-            </div>
-
-            <PostComposer
-              user={user}
-              mode="group"
-              groupId={parseInt(groupId || '0')}
-              onSuccess={handleCreatePostSuccess}
-              onClose={() => setShowPostModal(false)}
-            />
-          </div>
-        </div>
+        <PostComposerModal
+          user={user}
+          mode="group"
+          groupId={parseInt(groupId || '0')}
+          title={`Đăng bài trong nhóm ${group?.name || ''}`}
+          onClose={() => setShowPostModal(false)}
+          onSuccess={handleCreatePostSuccess}
+        />
       )}
 
       {/* Image Viewer */}
@@ -1394,7 +1266,10 @@ export default function GroupDetailPage() {
                           >
                             <div style={{
                               width: '40px', height: '40px', borderRadius: '50%',
-                              background: advisor.avatar ? `url(${advisor.avatar}) center/cover` : '#1876f2',
+                              backgroundColor: '#1876f2',
+                              backgroundImage: advisor.avatar ? `url("${resolveMediaUrl(advisor.avatar)}")` : undefined,
+                              backgroundPosition: 'center',
+                              backgroundSize: 'cover',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               color: '#fff', fontSize: '16px', flexShrink: 0,
                             }}>
