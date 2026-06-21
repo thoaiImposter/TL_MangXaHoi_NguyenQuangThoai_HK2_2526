@@ -27,6 +27,8 @@ export type PostComposerProps = {
   compact?: boolean;
   /** External onClose for modal */
   onClose?: () => void;
+  /** Open a poll composer using the same posting context. */
+  onCreatePoll?: () => void;
 };
 
 const EMOJIS = [
@@ -44,6 +46,7 @@ export default function PostComposer({
   editingData,
   showVisibility = false,
   compact = false,
+  onCreatePoll,
 }: PostComposerProps) {
   const [content, setContent] = useState(editingData?.content || '');
   const [media, setMedia] = useState<(File | string)[]>(
@@ -127,9 +130,9 @@ export default function PostComposer({
         // Create group post
         await api.createGroupPost(groupId, user.id, { content, media: uploadedMedia });
       } else if (mode === 'broadcast') {
-        // Create post in each selected group
+        // Send an announcement and notify members in each selected class group.
         for (const gid of selectedGroupIds) {
-          await api.createGroupPost(gid, user.id, { content, media: uploadedMedia });
+          await api.createGroupAnnouncement(gid, user.id, { content, media: uploadedMedia });
         }
       } else {
         // Regular post
@@ -304,6 +307,11 @@ export default function PostComposer({
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEmojiOpen(v => !v)}>
           😊 Emoji
         </button>
+        {!editingData && mode !== 'broadcast' && onCreatePoll && (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onCreatePoll}>
+            ▥ Bình chọn
+          </button>
+        )}
         <button className="btn btn-primary btn-sm" type="submit" disabled={loading} style={{ marginLeft: 'auto' }}>
           {loading ? 'Đang đăng...' : submitLabel || defaultLabel}
         </button>

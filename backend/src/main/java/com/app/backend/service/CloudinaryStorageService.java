@@ -35,6 +35,9 @@ public class CloudinaryStorageService {
         this.apiSecret = apiSecret;
     }
 
+    /**
+     * Ham tao signature de frontend upload truc tiep len Cloudinary.
+     */
     public DirectUploadSignature createDirectUploadSignature(String requestedFolder, String requestedType) {
         String folder = ALLOWED_FOLDERS.contains(requestedFolder) ? requestedFolder : "posts";
         String resourceType = switch (requestedType == null ? "" : requestedType) {
@@ -54,6 +57,9 @@ public class CloudinaryStorageService {
         return new DirectUploadSignature(cloudName, apiKey, signature, timestamp, "nlu-social/" + folder, resourceType);
     }
 
+    /**
+     * Ham upload file qua backend len Cloudinary va tra ve thong tin media.
+     */
     public UploadResult upload(MultipartFile file, String requestedFolder) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File không được để trống");
@@ -96,6 +102,9 @@ public class CloudinaryStorageService {
         );
     }
 
+    /**
+     * Ham chuan hoa resource_type Cloudinary thanh image/video/file cho frontend.
+     */
     private String normalizeMediaType(Object resourceType, String contentType) {
         String type = resourceType == null ? "" : String.valueOf(resourceType);
         if ("image".equals(type) || "video".equals(type)) {
@@ -106,6 +115,9 @@ public class CloudinaryStorageService {
         return "file";
     }
 
+    /**
+     * Ham doan resource_type tu MIME type hoac duoi file.
+     */
     private String detectResourceType(String contentType, String filename) {
         if (contentType != null) {
             if (contentType.startsWith("image/")) return "image";
@@ -117,12 +129,18 @@ public class CloudinaryStorageService {
         return "raw";
     }
 
+    /**
+     * Ham lay duoi file de tao file tam khi upload file lon.
+     */
     private String extensionOf(String filename) {
         if (filename == null) return ".tmp";
         int dot = filename.lastIndexOf('.');
         return dot >= 0 ? filename.substring(dot) : ".tmp";
     }
 
+    /**
+     * Ham tao public_id an toan cho file raw de giu duoi file.
+     */
     private String rawPublicId(String filename) {
         String original = filename == null || filename.isBlank() ? "file.bin" : filename;
         int dot = original.lastIndexOf('.');

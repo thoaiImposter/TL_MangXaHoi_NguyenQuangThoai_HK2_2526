@@ -12,6 +12,6 @@ public interface OtpTokenRepository extends JpaRepository<OtpToken, Long> {
     Optional<OtpToken> findByEmail(String email);
     
     Optional<OtpToken> findByEmailAndOtpCode(String email, String otpCode);
-    
-    void deleteByEmail(String email);
+
+    long deleteByEmail(String email);
 }

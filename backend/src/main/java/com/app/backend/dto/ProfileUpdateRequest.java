@@ -9,6 +9,8 @@ public class ProfileUpdateRequest {
     private String className;
     private String academicYear;
     private String academicTitle;
+    private Long facultyId;
+    private Long majorId;
 
     public String getFullName() { return fullName; }
     public void setFullName(String fullName) { this.fullName = fullName; }
@@ -26,4 +28,8 @@ public class ProfileUpdateRequest {
     public void setAcademicYear(String academicYear) { this.academicYear = academicYear; }
     public String getAcademicTitle() { return academicTitle; }
     public void setAcademicTitle(String academicTitle) { this.academicTitle = academicTitle; }
+    public Long getFacultyId() { return facultyId; }
+    public void setFacultyId(Long facultyId) { this.facultyId = facultyId; }
+    public Long getMajorId() { return majorId; }
+    public void setMajorId(Long majorId) { this.majorId = majorId; }
 }

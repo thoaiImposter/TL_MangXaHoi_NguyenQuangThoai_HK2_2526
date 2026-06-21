@@ -2,6 +2,7 @@ package com.app.backend.controller;
 
 import com.app.backend.dto.ProfileUpdateRequest;
 import com.app.backend.dto.UserResponse;
+import com.app.backend.service.AuthenticatedUserService;
 import com.app.backend.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,9 +15,11 @@ import java.util.Map;
 @RequestMapping("/api/users")
 public class UserController {
     private final UserService userService;
+    private final AuthenticatedUserService authenticatedUserService;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, AuthenticatedUserService authenticatedUserService) {
         this.userService = userService;
+        this.authenticatedUserService = authenticatedUserService;
     }
 
     @GetMapping("/{userId}")
@@ -27,6 +30,15 @@ public class UserController {
     @GetMapping("/search")
     public ResponseEntity<List<UserResponse>> searchUsers(@RequestParam(required = false, defaultValue = "") String q) {
         return ResponseEntity.ok(userService.searchUsers(q));
+    }
+
+    @GetMapping("/faculty-unions")
+    public ResponseEntity<?> getFacultyUnions(@RequestParam(required = false) Long requesterId) {
+        try {
+            return ResponseEntity.ok(userService.getFacultyUnionsForSchoolUnion(authenticatedUserService.getCurrentUserId()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
+        }
     }
 
     @PutMapping("/{userId}")

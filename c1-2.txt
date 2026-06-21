@@ -1,0 +1,46 @@
+CHƯƠNG  1. TỔNG QUAN ĐỀ TÀI
+1. 1. Phân tích, đánh giá các công trình nghiên cứu đã có liên quan đến đề tài nghiên cứu
+Ứng dụng mạng xã hội vào môi trường giáo dục đại học đã được nghiên cứu từ khá sớm. Boyd và Ellison (2007) định nghĩa mạng xã hội là hệ thống trực tuyến cho phép cá nhân xây dựng hồ sơ, kết nối và tương tác với các thành viên khác trong cùng một hệ thống — định nghĩa này đã đặt nền tảng lý thuyết cho phần lớn các nghiên cứu về sau. Tess (2013) chứng minh việc tích hợp các công cụ này vào giảng đường giúp tăng cường trao đổi thông tin, thúc đẩy thảo luận và nâng cao sự gắn kết giữa các thành viên.
+Tuy nhiên, phần lớn các công trình giai đoạn đầu chỉ đánh giá hành vi của người dùng dựa trên các nền tảng đại chúng có sẵn như Facebook hay Twitter, vốn được thiết kế cho mục đích giải trí và kết nối mở. Bateman (2021) trong nghiên cứu “Using Academic Social Networks to Enhance Student Experience in Online Higher Education” đã chỉ ra một hướng đi khác biệt: các mạng xã hội nội bộ khép kín — nơi người học và nhà trường cùng sinh hoạt trong một không gian định danh — tạo ra độ gắn kết cộng đồng và hiệu quả tương tác tương thời mà các nền tảng đại chúng không thể cung cấp.
+Khoảng trống mà các nghiên cứu trên chưa lấp đầy là việc hiện thực hóa một giải pháp công nghệ chuyên biệt cho một ngôi trường cụ thể — nơi mạng lưới Đoàn - Hội, Giảng viên và Sinh viên có thể tương tác hai chiều linh hoạt trong cùng một hệ thống khép kín, vừa khắc phục sự khô khan của các kênh thông báo truyền thống, vừa phù hợp với cấu trúc tổ chức của nhà trường. Đây chính là mục tiêu mà đề tài hướng đến giải quyết.
+1. 2. Nêu những vấn đề còn tồn tại
+Mặc dù các mạng xã hội phổ biến mang lại nhiều tiện ích kết nối, việc áp dụng chúng vào công tác quản lý và giao tiếp nội bộ tại trường đại học vẫn bộc lộ những hạn chế lớn.
+Các nền tảng giải trí đại chúng không được thiết kế cho cấu trúc hành chính học đường. Việc các tổ chức Đoàn - Hội, Khoa hay Giảng viên cố vấn phải dùng chung các không gian mở này để điều hành khiến thông tin chính thống dễ bị trôi dạt, lẫn lộn và khó kiểm soát. Ở chiều ngược lại, các công cụ truyền thống như Email trường tuy truyền tải thông báo tốt nhưng lại mang tính một chiều, khô khan, không tạo được không gian cho sinh viên tương tác phản hồi hay kết nối linh hoạt. Ngoài ra, việc thiếu một cơ chế định danh khép kín trên các hội nhóm tự phát tạo ra lỗ hổng lớn về bảo mật, dễ phát sinh các tài khoản ảo gây nhiễu loạn thông tin và ảnh hưởng đến quyền riêng tư của sinh viên.
+1. 3. Chỉ ra những vấn đề mà tiểu luận cần tập trung nghiên cứu, giải quyết
+Để giải quyết các rào cản trên, tiểu luận tập trung nghiên cứu và xây dựng một nền tảng mạng xã hội kết nối nội bộ khép kín dành riêng cho cộng đồng Trường Đại học Nông Lâm TP.HCM. Các bài toán cụ thể hệ thống cần giải quyết bao gồm:
+Xây dựng không gian định danh an toàn
+Xác thực tài khoản người dùng bằng email trường, đảm bảo mạng lưới tương tác chỉ giới hạn cho các thành viên nội bộ.
+Mô hình hóa cấu trúc hành chính học đường
+Thiết lập phân hệ quản lý hội nhóm theo đúng cấp bậc từ Đoàn trường, Đoàn Khoa xuống Giảng viên cố vấn (Cố vấn học tập) và Sinh viên, giúp tối ưu hóa luồng truyền tải thông tin và điều hành hoạt động.
+Tối ưu hóa kênh tương tác hai chiều
+Cung cấp giải pháp cho phép các bên dễ dàng kết nối thông qua các tính năng đăng tải bài viết, bình chọn, tìm kiếm và kết bạn.
+Hiện thực hóa giao tiếp tức thời
+Triển khai phân hệ nhắn tin cá nhân, nhắn tin nhóm và hệ thống thông báo theo thời gian thực nhằm tăng độ gắn kết cộng đồng.
+CHƯƠNG  2. PHƯƠNG PHÁP VÀ NỘI DUNG NGHIÊN CỨU
+2. 1. Trình bày cơ sở lí thuyết, lí luận, giả thiết khoa học
+2.1.1.  Các phương pháp giải quyết bài toán
+Để giải quyết bài toán xây dựng nền tảng mạng xã hội cho sinh viên Nông Lâm, đề tài sử dụng các phương pháp sau:
+Khảo sát và phân tích yêu cầu: Tìm hiểu các nền tảng mạng xã hội phổ biến như Facebook, Instagram, TikTok để xác định các chức năng của mỗi nền tảng. Từ đó phân tích và lựa chọn các chức năng phù hợp với nhu cầu thực tế của sinh viên Nông Lâm.
+Phân tích và thiết kế hệ thống: Sử dụng các công cụ mô hình hóa UML để thiết kế hệ thống trước khi lập trình, bao gồm Use Case Diagram để xác định các chức năng và người dùng liên quan, Activity Diagram để mô tả luồng xử lý của từng chức năng, Sequence Diagram để mô tả cách các thành phần giao tiếp với nhau, và ERD để thiết kế cơ sở dữ liệu.
+Phát triển theo từng giai đoạn: Hệ thống được xây dựng theo từng nhóm chức năng, hoàn thiện và kiểm thử từng phần trước khi tiến sang phần tiếp theo. Cách làm này giúp dễ phát hiện lỗi và điều chỉnh kịp thời trong quá trình phát triển.
+Kiểm thử chức năng: Kiểm tra từng chức năng theo các tình huống sử dụng thực tế, đảm bảo hệ thống hoạt động đúng và ổn định. Đặc biệt chú trọng kiểm thử các vấn đề liên quan đến bảo mật như xác thực người dùng và phân quyền truy cập.
+2.1.2. Các công nghệ đã được sử dụng trong tiểu luận
+2.1.2.1. ReactJS
+ReactJS là thư viện JavaScript do Meta phát triển, dùng để xây dựng giao diện người dùng . ReactJS cho phép chia giao diện thành các thành phần nhỏ, độc lập và có thể tái sử dụng, giúp việc phát triển và bảo trì dễ dàng hơn. Trong đề tài, ReactJS được dùng để xây dựng toàn bộ giao diện từ trang đăng nhập, trang chủ, trang cá nhân, đăng bài đến cửa sổ nhắn tin.
+
+2.1.2.2. Spring Boot
+Spring Boot là framework Java giúp xây dựng ứng dụng backend nhanh chóng với cấu hình đơn giản. Spring Boot cung cấp sẵn các công cụ xử lý bảo mật (Spring Security), kết nối cơ sở dữ liệu (Spring Data JPA) và hỗ trợ nhắn tin thời gian thực (Spring WebSocket). Trong đề tài, Spring Boot đảm nhiệm toàn bộ phần xử lý logic và cung cấp API cho phía client.
+2.1.2.3. RESTful API
+RESTful API là cách thiết kế giao diện lập trình ứng dụng theo chuẩn REST, sử dụng các phương thức HTTP (GET, POST, PUT, DELETE) để xử lý dữ liệu, trao đổi qua định dạng JSON. Trong đề tài, RESTful API là cầu nối giao tiếp giữa ReactJS và Spring Boot.
+2.1.2.4. MySQL
+MySQL là hệ quản trị cơ sở dữ liệu quan hệ phổ biến, ổn định và phù hợp với các ứng dụng web. MySQL được dùng để lưu trữ toàn bộ dữ liệu của hệ thống gồm tài khoản người dùng, bài viết, bình luận, tin nhắn, thông báo và các dữ liệu liên quan khác.
+2.1.2.5. JWT
+JWT (JSON Web Token) là phương thức xác thực người dùng phổ biến trong các ứng dụng web. Sau khi đăng nhập thành công, server cấp cho client một token, client gửi kèm token này trong mỗi request để server xác minh danh tính mà không cần lưu phiên đăng nhập trên server.
+2.1.2.6. WebSocket và STOMP
+Đây là công nghệ cho phép server và client giao tiếp hai chiều liên tục theo thời gian thực, được dùng để triển khai chức năng nhắn tin và thông báo đẩy trong hệ thống.
+2. 2.  Trình bày mô hình lý thuyết của giải pháp đã đề xuất sử dụng trong tiểu luận
+Hệ thống được xây dựng theo mô hình kiến trúc ba tầng, gồm ba thành phần chính:
+Tầng giao diện (Frontend – ReactJS) chịu trách nhiệm hiển thị giao diện và nhận tương tác từ người dùng. Khi người dùng thực hiện một thao tác, ReactJS gửi yêu cầu đến backend qua API và hiển thị kết quả trả về lên giao diện.
+Tầng xử lý nghiệp vụ (Backend – Spring Boot) là nơi xử lý toàn bộ logic của hệ thống. Tầng này nhận yêu cầu từ frontend, kiểm tra quyền truy cập, thực hiện các xử lý cần thiết rồi truy vấn hoặc cập nhật dữ liệu trong cơ sở dữ liệu và trả kết quả về cho client.
+Tầng dữ liệu (Database – MySQL) lưu trữ toàn bộ dữ liệu của hệ thống. Các bảng dữ liệu chính gồm: Users, Posts, Comments, Reactions, Friendships, Conversations, Messages, Notifications và Reports.
+Ba tầng này hoạt động theo luồng: người dùng thao tác trên giao diện → ReactJS gửi request đến Spring Boot kèm JWT token → Spring Boot xác thực, xử lý nghiệp vụ, làm việc với MySQL → trả kết quả về → ReactJS cập nhật giao diện. Riêng các chức năng thời gian thực như nhắn tin và thông báo, hệ thống sử dụng WebSocket để đẩy dữ liệu trực tiếp đến client mà không cần client phải gửi request.

@@ -4,6 +4,7 @@ import com.app.backend.dto.AuthRequest;
 import com.app.backend.dto.RegisterRequest;
 import com.app.backend.dto.UserResponse;
 import com.app.backend.dto.AuthResponse;
+import com.app.backend.service.AuthenticatedUserService;
 import com.app.backend.service.AuthTokenService;
 import com.app.backend.service.UserService;
 import com.app.backend.service.OtpService;
@@ -22,16 +23,18 @@ public class AuthController {
     private final UserService userService;
     private final OtpService otpService;
     private final AuthTokenService authTokenService;
+    private final AuthenticatedUserService authenticatedUserService;
 
-    public AuthController(UserService userService, OtpService otpService, AuthTokenService authTokenService) {
+    public AuthController(UserService userService, OtpService otpService, AuthTokenService authTokenService,
+                          AuthenticatedUserService authenticatedUserService) {
         this.userService = userService;
         this.otpService = otpService;
         this.authTokenService = authTokenService;
+        this.authenticatedUserService = authenticatedUserService;
     }
 
     /**
-     * Step 1: Request OTP for registration
-     * Send OTP to the user's email
+     * Ham yeu cau gui OTP dang ky den email truong.
      */
     @PostMapping("/register/request-otp")
     public ResponseEntity<?> requestRegistrationOtp(@RequestBody Map<String, String> request) {
@@ -45,12 +48,12 @@ public class AuthController {
             
             userService.validateRegistrationEmail(email, role);
             
-            // Check if email is already registered
+            // Khong gui OTP neu email da co tai khoan.
             if (userService.isEmailRegistered(email.trim().toLowerCase())) {
                 return ResponseEntity.badRequest().body("Email đã được đăng ký");
             }
             
-            // Send OTP
+            // Tao va gui OTP dang ky.
             otpService.sendRegistrationOtp(email.trim().toLowerCase());
             
             return ResponseEntity.ok(Map.of(
@@ -68,7 +71,7 @@ public class AuthController {
     }
 
     /**
-     * Step 2: Resend OTP
+     * Ham gui lai OTP dang ky cho cung email.
      */
     @PostMapping("/register/resend-otp")
     public ResponseEntity<?> resendRegistrationOtp(@RequestBody Map<String, String> request) {
@@ -101,12 +104,12 @@ public class AuthController {
     }
 
     /**
-     * Step 3: Complete registration with OTP verification
+     * Ham hoan tat dang ky sau khi user nhap OTP.
      */
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
         try {
-            // Validate OTP first
+            // Bat buoc co OTP truoc khi tao tai khoan.
             if (request.getOtpCode() == null || request.getOtpCode().trim().isEmpty()) {
                 return ResponseEntity.badRequest().body("Vui lòng nhập mã OTP");
             }
@@ -116,13 +119,13 @@ public class AuthController {
                 return ResponseEntity.badRequest().body("Email không được để trống");
             }
             
-            // Verify OTP
+            // Kiem tra OTP co dung va con han khong.
             OtpService.VerificationResult result = otpService.verifyOtp(email.trim().toLowerCase(), request.getOtpCode().trim());
             if (!result.isSuccess()) {
                 return ResponseEntity.badRequest().body(result.getMessage());
             }
             
-            // Proceed with registration
+            // OTP dung thi tao user va tra ve token dang nhap.
             UserResponse user = userService.register(request);
             return ResponseEntity.ok(new AuthResponse(user, authTokenService.createToken(user.getId())));
         } catch (IllegalArgumentException ex) {
@@ -152,7 +155,7 @@ public class AuthController {
      * Get current user profile
      */
     @GetMapping("/me")
-    public ResponseEntity<UserResponse> getCurrentUserProfile(@RequestParam Long userId) {
-        return ResponseEntity.ok(userService.getProfile(userId));
+    public ResponseEntity<UserResponse> getCurrentUserProfile(@RequestParam(required = false) Long userId) {
+        return ResponseEntity.ok(userService.getProfile(authenticatedUserService.getCurrentUserId()));
     }
 }

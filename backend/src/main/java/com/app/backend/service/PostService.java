@@ -7,9 +7,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Set;
 import java.util.function.Function;
 
 @Service
@@ -25,8 +27,9 @@ public class PostService {
     private final FriendshipService friendshipService;
     private final NotificationService notificationService;
     private final PrivacyAccessService privacyAccessService;
+    private final CloudinaryCleanupService cloudCleanup;
 
-    public PostService(PostRepository postRepository, UserRepository userRepository, PostLikeRepository postLikeRepository, PostCommentRepository postCommentRepository, PostMediaRepository postMediaRepository, CommentMediaRepository commentMediaRepository, CommentLikeRepository commentLikeRepository, PostShareRepository postShareRepository, FriendshipService friendshipService, NotificationService notificationService, PrivacyAccessService privacyAccessService) {
+    public PostService(PostRepository postRepository, UserRepository userRepository, PostLikeRepository postLikeRepository, PostCommentRepository postCommentRepository, PostMediaRepository postMediaRepository, CommentMediaRepository commentMediaRepository, CommentLikeRepository commentLikeRepository, PostShareRepository postShareRepository, FriendshipService friendshipService, NotificationService notificationService, PrivacyAccessService privacyAccessService, CloudinaryCleanupService cloudCleanup) {
         this.postRepository = postRepository;
         this.userRepository = userRepository;
         this.postLikeRepository = postLikeRepository;
@@ -38,12 +41,31 @@ public class PostService {
         this.friendshipService = friendshipService;
         this.notificationService = notificationService;
         this.privacyAccessService = privacyAccessService;
+        this.cloudCleanup = cloudCleanup;
     }
 
+    /**
+     * Ham lay bang tin, loc bai khong duoc phep xem va bo bai cua chinh viewer.
+     */
     public List<PostFeedResponse> getFeed(Long viewerId, int page, int size) {
         return collectVisiblePosts(page, size, viewerId, postRepository::findTimelineCandidates, true);
     }
 
+    /**
+     * Ham tim bai viet theo tu khoa va chi tra ve bai viewer co quyen xem.
+     */
+    public List<PostFeedResponse> searchPosts(String query, Long viewerId, int page, int size) {
+        String normalized = query == null ? "" : query.trim();
+        if (normalized.isBlank()) {
+            return List.of();
+        }
+        return collectVisiblePosts(page, size, viewerId,
+            pageable -> postRepository.searchRelevant(normalized, pageable), false);
+    }
+
+    /**
+     * Ham lay bai viet tren trang ca nhan cua mot user.
+     */
     public List<PostFeedResponse> getPostsByUser(Long userId, Long viewerId, int page, int size, boolean personalOnly) {
         User owner = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("User not found"));
         if (!privacyAccessService.canViewProfilePosts(owner, viewerId)) {
@@ -55,6 +77,9 @@ public class PostService {
         return collectVisiblePosts(page, size, viewerId, loader, false);
     }
 
+    /**
+     * Ham gom bai viet co the hien thi, co phan trang va kiem tra quyen rieng tu.
+     */
     private List<PostFeedResponse> collectVisiblePosts(
             int requestedPage,
             int requestedSize,
@@ -83,6 +108,9 @@ public class PostService {
             .toList();
     }
 
+    /**
+     * Ham tao bai viet moi, luu media va tao thong bao cho ban be neu bai khong private.
+     */
     public PostResponse createPost(Long userId, PostRequest request) {
         User author = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("User not found"));
         String content = request.getContent() == null ? "" : request.getContent().trim();
@@ -105,6 +133,10 @@ public class PostService {
         return toResponse(saved);
     }
 
+    /**
+     * Ham sua bai viet cua chinh tac gia va dong bo lai danh sach media.
+     */
+    @Transactional
     public PostResponse updatePost(Long postId, Long userId, PostRequest request) {
         Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
         if (!post.getAuthor().getId().equals(userId)) {
@@ -117,20 +149,36 @@ public class PostService {
         post.setContent(content);
         post.setVisibility(privacyAccessService.normalizeScope(request.getVisibility(), post.getVisibility()));
         Post saved = postRepository.save(post);
-        postMediaRepository.deleteAll(postMediaRepository.findByPostIdOrderByMediaOrderAsc(postId));
+        List<PostMedia> oldMedia = postMediaRepository.findByPostIdOrderByMediaOrderAsc(postId);
+        Set<String> retainedUrls = request.getMedia() == null ? Set.of() : request.getMedia().stream()
+            .map(item -> {
+                String url = getStringFromMap(item, "url");
+                return url == null ? getStringFromMap(item, "mediaUrl") : url;
+            })
+            .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        cloudCleanup.schedule(oldMedia.stream().map(PostMedia::getMediaUrl).filter(url -> !retainedUrls.contains(url)).toList());
+        postMediaRepository.deleteAll(oldMedia);
         saveMedia(saved, request.getMedia());
         return toResponse(saved);
     }
 
+    /**
+     * Ham xoa bai viet cua chinh tac gia va len lich xoa media tren Cloudinary.
+     */
+    @Transactional
     public void deletePost(Long postId, Long userId) {
         Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
         privacyAccessService.requirePostAccess(post, userId);
         if (!post.getAuthor().getId().equals(userId)) {
             throw new IllegalArgumentException("You can only delete your own posts");
         }
+        cloudCleanup.schedulePostAssets(postId);
         postRepository.delete(post);
     }
 
+    /**
+     * Ham bat/tat like bai viet; neu like moi thi tao thong bao cho tac gia.
+     */
     public PostLikeResponse toggleLike(Long postId, Long userId) {
         Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
         privacyAccessService.requirePostAccess(post, userId);
@@ -150,6 +198,9 @@ public class PostService {
             });
     }
 
+    /**
+     * Ham them binh luan hoac tra loi binh luan, co ho tro media dinh kem.
+     */
     public PostCommentResponse addComment(Long postId, Long userId, PostCommentRequest request) {
         Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
         privacyAccessService.requirePostAccess(post, userId);
@@ -173,9 +224,17 @@ public class PostService {
         PostComment saved = postCommentRepository.save(comment);
         saveCommentMedia(saved, request.getMedia());
         notificationService.createPostCommentNotification(userId, postId, post.getAuthor().getId());
+        if (comment.getParentComment() != null
+                && !comment.getParentComment().getAuthor().getId().equals(post.getAuthor().getId())) {
+            notificationService.createCommentReplyNotification(
+                userId, postId, comment.getParentComment().getAuthor().getId());
+        }
         return toCommentResponse(saved, null);
     }
 
+    /**
+     * Ham sua noi dung binh luan cua chinh tac gia.
+     */
     public PostCommentResponse updateComment(Long commentId, Long userId, String content) {
         PostComment comment = postCommentRepository.findById(commentId)
             .orElseThrow(() -> new IllegalArgumentException("Comment not found"));
@@ -191,21 +250,32 @@ public class PostService {
         return toCommentResponse(saved, null);
     }
 
+    /**
+     * Ham xoa binh luan cua chinh tac gia va len lich xoa media cua comment.
+     */
+    @Transactional
     public void deleteComment(Long commentId, Long userId) {
         PostComment comment = postCommentRepository.findById(commentId)
             .orElseThrow(() -> new IllegalArgumentException("Comment not found"));
         if (!comment.getAuthor().getId().equals(userId)) {
             throw new IllegalArgumentException("You can only delete your own comments");
         }
+        cloudCleanup.scheduleCommentAssets(commentId);
         postCommentRepository.delete(comment);
     }
 
+    /**
+     * Ham lay danh sach binh luan cua bai viet sau khi kiem tra quyen xem bai.
+     */
     public List<PostCommentResponse> getComments(Long postId, Long viewerId) {
         Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("Post not found"));
         privacyAccessService.requirePostAccess(post, viewerId);
         return postCommentRepository.findByPostIdOrderByCreatedAtAsc(postId).stream().map(comment -> toCommentResponse(comment, viewerId)).toList();
     }
 
+    /**
+     * Ham bat/tat like binh luan va tao thong bao cho tac gia binh luan.
+     */
     public CommentLikeResponse toggleCommentLike(Long commentId, Long userId) {
         PostComment comment = postCommentRepository.findById(commentId).orElseThrow(() -> new IllegalArgumentException("Comment not found"));
         privacyAccessService.requirePostAccess(comment.getPost(), userId);
@@ -220,10 +290,15 @@ public class PostService {
                 like.setComment(postCommentRepository.getReferenceById(commentId));
                 like.setUser(user);
                 commentLikeRepository.save(like);
+                notificationService.createCommentLikeNotification(
+                    userId, comment.getPost().getId(), comment.getAuthor().getId());
                 return new CommentLikeResponse(commentId, commentLikeRepository.countByCommentId(commentId), true);
             });
     }
 
+    /**
+     * Ham luu danh sach media cua bai viet.
+     */
     private void saveMedia(Post post, List<java.util.Map<String, Object>> media) {
         if (media == null || media.isEmpty()) return;
         for (int i = 0; i < media.size(); i++) {
@@ -232,7 +307,7 @@ public class PostService {
             
             String url = getStringFromMap(item, "url");
             if (url == null || url.isBlank()) {
-                // Fallback: try "mediaUrl" key
+                // Neu frontend gui key mediaUrl thi van doc duoc.
                 url = getStringFromMap(item, "mediaUrl");
             }
             if (url == null || url.isBlank()) continue;
@@ -242,7 +317,7 @@ public class PostService {
                 type = getStringFromMap(item, "mediaType");
             }
             if (type == null || type.isBlank()) {
-                // Auto-detect from URL
+                // Neu khong co type thi doan loai file tu URL.
                 type = detectMediaTypeFromUrl(url);
             }
             

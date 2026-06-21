@@ -7,6 +7,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 
@@ -16,18 +17,35 @@ public class AuthTokenService {
     private final long expirationSeconds;
 
     public AuthTokenService(
-            @Value("${app.auth.secret:nlu-social-development-secret-change-before-deploy}") String secret,
+            @Value("${app.auth.secret:}") String configuredSecret,
             @Value("${app.auth.expiration-seconds:604800}") long expirationSeconds) {
-        this.secret = secret.getBytes(StandardCharsets.UTF_8);
+        String secret = configuredSecret == null ? "" : configuredSecret.trim();
+        if (secret.isBlank()) {
+            byte[] generated = new byte[32];
+            new SecureRandom().nextBytes(generated);
+            this.secret = generated;
+            System.out.println("[AUTH] APP_AUTH_SECRET is not set. Generated an ephemeral secret; sessions will expire after restart.");
+        } else {
+            if (secret.length() < 32) {
+                throw new IllegalStateException("APP_AUTH_SECRET must contain at least 32 characters");
+            }
+            this.secret = secret.getBytes(StandardCharsets.UTF_8);
+        }
         this.expirationSeconds = expirationSeconds;
     }
 
+    /**
+     * Ham tao token dang nhap tu userId va thoi diem het han.
+     */
     public String createToken(Long userId) {
         long expiresAt = Instant.now().getEpochSecond() + expirationSeconds;
         String payload = userId + ":" + expiresAt;
         return encode(payload) + "." + sign(payload);
     }
 
+    /**
+     * Ham kiem tra token hop le va lay userId ben trong token.
+     */
     public Long parseUserId(String token) {
         if (token == null || token.isBlank()) {
             throw new IllegalArgumentException("Missing authentication token");
@@ -52,10 +70,16 @@ public class AuthTokenService {
         return Long.parseLong(values[0]);
     }
 
+    /**
+     * Ham encode payload token bang Base64 URL-safe.
+     */
     private String encode(String value) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * Ham ky payload bang HMAC-SHA256 de chong sua token.
+     */
     private String sign(String payload) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");

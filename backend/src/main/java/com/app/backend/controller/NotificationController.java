@@ -41,7 +41,7 @@ public class NotificationController {
 
     @PutMapping("/users/{userId}/notifications/read-all")
     public ResponseEntity<?> markAllAsRead(@PathVariable Long userId) {
-        notificationService.markAllAsRead(userId);
-        return ResponseEntity.ok().build();
+        notificationService.markAllAsRead(authenticatedUserService.getCurrentUserId());
+        return ResponseEntity.noContent().build();
     }
 }

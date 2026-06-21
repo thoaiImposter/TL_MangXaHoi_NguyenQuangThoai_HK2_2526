@@ -2,6 +2,7 @@ package com.app.backend.repository;
 
 import com.app.backend.entity.GroupNotification;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -26,8 +27,10 @@ public interface GroupNotificationRepository extends JpaRepository<GroupNotifica
     List<GroupNotification> findUnreadByUserId(@Param("userId") Long userId);
 
     @Query("UPDATE GroupNotification gn SET gn.isRead = true WHERE gn.user.id = :userId")
+    @Modifying
     void markAllAsRead(@Param("userId") Long userId);
 
     @Query("UPDATE GroupNotification gn SET gn.isRead = true WHERE gn.id = :id")
+    @Modifying
     void markAsRead(@Param("id") Long id);
 }

@@ -13,6 +13,85 @@ USE social_app;
 -- File được upload lên Cloudinary; database chỉ lưu secure URL, không lưu base64/binary.
 
 -- 1. Users table với avatar và cover
+-- Danh mục ngành đại học chính thức năm 2026.
+-- Gồm 36 ngành tại cơ sở chính và 1 ngành riêng của Phân hiệu Ninh Thuận.
+CREATE TABLE faculties (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  code VARCHAR(30) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_faculties_code (code),
+  UNIQUE KEY uk_faculties_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO faculties (code, name) VALUES
+('NN-SP', 'Khoa Ngoại ngữ - Sư phạm'),
+('KT', 'Khoa Kinh tế'),
+('QLDD-BDS', 'Khoa Quản lý đất đai và Bất động sản'),
+('SH', 'Khoa Sinh học'),
+('MT-TN', 'Khoa Môi trường và Tài nguyên'),
+('CNTT', 'Khoa Công nghệ Thông tin'),
+('CK-CN', 'Khoa Cơ khí - Công nghệ'),
+('CNHH-TP', 'Khoa Công nghệ Hóa học và Thực phẩm'),
+('TS', 'Khoa Thủy sản'),
+('CNTY', 'Khoa Chăn nuôi Thú y'),
+('NH', 'Khoa Nông học'),
+('LN', 'Khoa Lâm nghiệp'),
+('KH', 'Khoa Khoa học');
+
+CREATE TABLE majors (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  code VARCHAR(20) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  campus VARCHAR(50) NOT NULL DEFAULT 'NLS',
+  faculty_id BIGINT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_majors_code (code),
+  KEY idx_majors_faculty (faculty_id),
+  CONSTRAINT fk_majors_faculty FOREIGN KEY (faculty_id) REFERENCES faculties (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO majors (code, name, campus, faculty_id) VALUES
+('7140215', 'Sư phạm kỹ thuật nông nghiệp', 'NLS', (SELECT id FROM faculties WHERE code='NN-SP')),
+('7220201', 'Ngôn ngữ Anh', 'NLS', (SELECT id FROM faculties WHERE code='NN-SP')),
+('7310101', 'Kinh tế', 'NLS', (SELECT id FROM faculties WHERE code='KT')),
+('7340101', 'Quản trị kinh doanh', 'NLS', (SELECT id FROM faculties WHERE code='KT')),
+('7340116', 'Bất động sản', 'NLS', (SELECT id FROM faculties WHERE code='QLDD-BDS')),
+('7340301', 'Kế toán', 'NLS', (SELECT id FROM faculties WHERE code='KT')),
+('7420201', 'Công nghệ sinh học', 'NLS', (SELECT id FROM faculties WHERE code='SH')),
+('7440301', 'Khoa học môi trường', 'NLS', (SELECT id FROM faculties WHERE code='MT-TN')),
+('7480104', 'Hệ thống thông tin', 'NLS', (SELECT id FROM faculties WHERE code='CNTT')),
+('7480201', 'Công nghệ thông tin', 'NLS', (SELECT id FROM faculties WHERE code='CNTT')),
+('7510201', 'Công nghệ kỹ thuật cơ khí', 'NLS', (SELECT id FROM faculties WHERE code='CK-CN')),
+('7510203', 'Công nghệ kỹ thuật cơ - điện tử', 'NLS', (SELECT id FROM faculties WHERE code='CK-CN')),
+('7510205', 'Công nghệ kỹ thuật ô tô', 'NLS', (SELECT id FROM faculties WHERE code='CK-CN')),
+('7510206', 'Công nghệ kỹ thuật nhiệt', 'NLS', (SELECT id FROM faculties WHERE code='CK-CN')),
+('7510401', 'Công nghệ kỹ thuật hóa học', 'NLS', (SELECT id FROM faculties WHERE code='CNHH-TP')),
+('7519007', 'Công nghệ kỹ thuật năng lượng tái tạo', 'NLS', (SELECT id FROM faculties WHERE code='CK-CN')),
+('7520216', 'Kỹ thuật điều khiển và tự động hóa', 'NLS', (SELECT id FROM faculties WHERE code='CK-CN')),
+('7520320', 'Kỹ thuật môi trường', 'NLS', (SELECT id FROM faculties WHERE code='MT-TN')),
+('7540101', 'Công nghệ thực phẩm', 'NLS', (SELECT id FROM faculties WHERE code='CNHH-TP')),
+('7540105', 'Công nghệ chế biến thủy sản', 'NLS', (SELECT id FROM faculties WHERE code='TS')),
+('7540106', 'Đảm bảo chất lượng và An toàn thực phẩm', 'NLS', (SELECT id FROM faculties WHERE code='CNHH-TP')),
+('7549001', 'Công nghệ chế biến lâm sản', 'NLS', (SELECT id FROM faculties WHERE code='LN')),
+('7620105', 'Chăn nuôi', 'NLS', (SELECT id FROM faculties WHERE code='CNTY')),
+('7620109', 'Nông học', 'NLS', (SELECT id FROM faculties WHERE code='NH')),
+('7620112', 'Bảo vệ thực vật', 'NLS', (SELECT id FROM faculties WHERE code='NH')),
+('7620114', 'Kinh doanh nông nghiệp', 'NLS', (SELECT id FROM faculties WHERE code='KT')),
+('7620116', 'Phát triển nông thôn', 'NLS', (SELECT id FROM faculties WHERE code='KT')),
+('7620201', 'Lâm học', 'NLS', (SELECT id FROM faculties WHERE code='LN')),
+('7620202', 'Lâm nghiệp đô thị', 'NLS', (SELECT id FROM faculties WHERE code='LN')),
+('7620211', 'Quản lý tài nguyên rừng', 'NLS', (SELECT id FROM faculties WHERE code='LN')),
+('7620301', 'Nuôi trồng thủy sản', 'NLS', (SELECT id FROM faculties WHERE code='TS')),
+('7640101', 'Thú y', 'NLS', (SELECT id FROM faculties WHERE code='CNTY')),
+('7850101', 'Quản lý Tài nguyên và Môi trường', 'NLS', (SELECT id FROM faculties WHERE code='MT-TN')),
+('7850103', 'Quản lý đất đai', 'NLS', (SELECT id FROM faculties WHERE code='QLDD-BDS')),
+('7859002', 'Tài nguyên và Du lịch Sinh thái', 'NLS', (SELECT id FROM faculties WHERE code='MT-TN')),
+('7859007', 'Cảnh quan và Kỹ thuật hoa viên', 'NLS', (SELECT id FROM faculties WHERE code='LN')),
+('7140201N', 'Giáo dục Mầm non', 'NLN', NULL);
+
 CREATE TABLE users (
   id BIGINT NOT NULL AUTO_INCREMENT,
   email VARCHAR(255) NOT NULL,
@@ -26,14 +105,62 @@ CREATE TABLE users (
   class_name VARCHAR(255) NULL,
   academic_year VARCHAR(50) NULL,
   academic_title VARCHAR(100) NULL,
+  major_id BIGINT NULL,
   account_protection BOOLEAN NOT NULL DEFAULT FALSE,
+  account_locked BOOLEAN NOT NULL DEFAULT FALSE,
   created_at DATETIME(6) NULL,
   updated_at DATETIME(6) NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_users_email (email)
+  UNIQUE KEY uk_users_email (email),
+  KEY idx_users_major (major_id),
+  CONSTRAINT fk_users_major FOREIGN KEY (major_id) REFERENCES majors (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2. Groups table (Được đưa lên trước để bảng Messages tham chiếu sang)
+-- Tài khoản demo dùng để chấm và kiểm thử sau khi chạy lại toàn bộ script.
+-- Mật khẩu 4 actor: Thoai123@
+-- Mật khẩu admin: Admin123@
+INSERT INTO users (
+  email, password, full_name, role, bio, faculty, class_name, academic_year,
+  academic_title, major_id, account_protection, account_locked, created_at, updated_at
+) VALUES
+(
+  'thanhnga@hcmuaf.edu.vn',
+  '$2a$10$niRhK3BPWi1q4Gn.r8Yc4.RSrd4uRhLwD4u0PKwSaIHJyk20Tl5li',
+  'Thanh Nga', 'advisor', 'Giảng viên khoa Công nghệ Thông tin',
+  'Khoa Công nghệ Thông tin', NULL, NULL, 'Thạc sĩ', NULL,
+  FALSE, FALSE, NOW(6), NOW(6)
+),
+(
+  '22130273@st.hcmuaf.edu.vn',
+  '$2a$10$5CmseHv4gowuWPyCxsQqiur2HkMHkbwxkHqxocQfoNzGC4q2IHGpS',
+  'Nguyễn Quang Thoại', 'student', 'Sinh viên ngành Công nghệ thông tin',
+  'Khoa Công nghệ Thông tin', 'CNTT01', 'K22 (2022 - 2026)', NULL,
+  (SELECT id FROM majors WHERE code = '7480201'),
+  FALSE, FALSE, NOW(6), NOW(6)
+),
+(
+  'doankhoa.cntt@hcmuaf.edu.vn',
+  '$2a$10$jg.YOMnWNrVC0B8vNnfun.iqoapKB8FGfg8fgkD9WV3IEjYGAvn0e',
+  'Đoàn Khoa CNTT', 'faculty_union', 'Đoàn khoa Công nghệ Thông tin',
+  'Khoa Công nghệ Thông tin', NULL, NULL, NULL, NULL,
+  FALSE, FALSE, NOW(6), NOW(6)
+),
+(
+  'doantruong@hcmuaf.edu.vn',
+  '$2a$10$Mqz5dB.mtugs09ddW6d6uOPewHdYzD.VVhvxVUd8gPEx8YTjDfGlO',
+  'Đoàn Trường NLU', 'school_union', 'Đoàn trường Đại học Nông Lâm TP.HCM',
+  NULL, NULL, NULL, NULL, NULL,
+  FALSE, FALSE, NOW(6), NOW(6)
+),
+(
+  'admin@hcmuaf.edu.vn',
+  '$2a$10$/L/QP7Mu/hWpp.ivlRh/kOkTxvHOjNgzSEWukLF39nHcxTsKtBJ8C',
+  'Quản trị viên NLU Social', 'admin', 'Tài khoản quản trị hệ thống',
+  NULL, NULL, NULL, NULL, NULL,
+  FALSE, FALSE, NOW(6), NOW(6)
+);
+
 CREATE TABLE `groups` (
     id BIGINT NOT NULL AUTO_INCREMENT,
     name VARCHAR(255) NOT NULL,
@@ -369,6 +496,31 @@ CREATE TABLE post_shares (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- XONG! TOÀN BỘ CẤU TRÚC DATABASE ĐÃ ĐƯỢC KHỞI TẠO ĐỒNG BỘ VÀ HOÀN CHỈNH.
+
+-- 24. Reports table
+CREATE TABLE reports (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    reporter_id BIGINT NOT NULL,
+    target_type VARCHAR(20) NOT NULL,
+    target_id BIGINT NOT NULL,
+    target_owner_id BIGINT NULL,
+    target_title VARCHAR(500) NULL,
+    target_snapshot VARCHAR(3000) NULL,
+    reason VARCHAR(50) NOT NULL,
+    details VARCHAR(1000) NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    resolution VARCHAR(30) NULL,
+    admin_note VARCHAR(1000) NULL,
+    handled_by_id BIGINT NULL,
+    created_at DATETIME(6) NOT NULL,
+    handled_at DATETIME(6) NULL,
+    PRIMARY KEY (id),
+    KEY idx_reports_status_created (status, created_at),
+    KEY idx_reports_target (target_type, target_id),
+    KEY idx_reports_reporter (reporter_id),
+    CONSTRAINT fk_reports_reporter FOREIGN KEY (reporter_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_reports_handled_by FOREIGN KEY (handled_by_id) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
 -- MIGRATION: Add shared_post_id to post_shares (for existing DBs)

@@ -36,6 +36,10 @@ public class User {
     private String className;
     private String academicYear;
 
+    @ManyToOne
+    @JoinColumn(name = "major_id")
+    private Major major;
+
     @Column(length = 100)
     private String academicTitle;
 
@@ -44,6 +48,9 @@ public class User {
 
     @Column(nullable = false)
     private Boolean accountProtection = false;
+
+    @Column(nullable = false)
+    private Boolean accountLocked = false;
 
     @PrePersist
     protected void onCreate() {
@@ -78,12 +85,16 @@ public class User {
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
     public Boolean getAccountProtection() { return accountProtection; }
     public void setAccountProtection(Boolean accountProtection) { this.accountProtection = accountProtection; }
+    public Boolean getAccountLocked() { return accountLocked; }
+    public void setAccountLocked(Boolean accountLocked) { this.accountLocked = accountLocked; }
     public String getFaculty() { return faculty; }
     public void setFaculty(String faculty) { this.faculty = faculty; }
     public String getClassName() { return className; }
     public void setClassName(String className) { this.className = className; }
     public String getAcademicYear() { return academicYear; }
     public void setAcademicYear(String academicYear) { this.academicYear = academicYear; }
+    public Major getMajor() { return major; }
+    public void setMajor(Major major) { this.major = major; }
     public String getAcademicTitle() { return academicTitle; }
     public void setAcademicTitle(String academicTitle) { this.academicTitle = academicTitle; }
 }

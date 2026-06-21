@@ -180,7 +180,7 @@ export default function GroupChat({ groupId, user, members, fillHeight = false }
           <div className="group-chat-empty">Chưa có tin nhắn nào. Hãy bắt đầu cuộc trò chuyện!</div>
         ) : (
           Object.entries(groupedMessages).map(([date, msgs]) => (
-            <div key={date}>
+            <div className="group-chat-message-day" key={date}>
               <div className="chat-date-divider">
                 <span>{date}</span>
               </div>
@@ -190,6 +190,7 @@ export default function GroupChat({ groupId, user, members, fillHeight = false }
                   message={msg}
                   isOwn={msg.senderId === userId}
                   showAvatar
+                  showOwnAvatar
                   showSenderName={!msg.senderId || msg.senderId !== userId}
                   onImageClick={(url) => setViewerImage(url)}
                   onRecall={handleRecall}

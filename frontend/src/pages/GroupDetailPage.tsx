@@ -1,11 +1,12 @@
 import { useRef, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, resolveMediaUrl } from '../lib/api';
+import ReportButton from '../components/ReportButton';
 import { uploadFileUrl } from '../lib/upload';
 import { confirmAction } from '../lib/feedback';
 import GroupPostCard from '../components/GroupPostCard';
 import GroupChat from '../components/GroupChat';
-import PollCreator from '../components/PollCreator';
+import PollCreator, { type PollDraft } from '../components/PollCreator';
 import PostComposerBar from '../components/PostComposerBar';
 import PostComposerModal from '../components/PostComposerModal';
 import type { Group, GroupMember, GroupPost, GroupJoinRequest, User } from '../types';
@@ -400,7 +401,7 @@ export default function GroupDetailPage() {
     }
   };
 
-  const handleCreatePoll = async (pollData: { title: string; content: string; options: string[]; endDate?: string; allowMultiple: boolean }) => {
+  const handleCreatePoll = async (pollData: PollDraft) => {
     if (!groupId) return;
     setLoading(true);
     try {
@@ -423,7 +424,7 @@ export default function GroupDetailPage() {
   const loadAdvisors = async () => {
     setAdvisorLoading(true);
     try {
-      const data = await api.getAdvisorsByFaculty(user?.faculty || undefined);
+      const data = await api.getAdvisorsByFaculty(userId);
       setAdvisors(data);
     } catch (err) {
       console.error('Failed to load advisors:', err);
@@ -448,7 +449,7 @@ export default function GroupDetailPage() {
     setAdvisorLoading(true);
     setInviteResult(null);
     try {
-      const result = await api.inviteAdvisorToGroup(parseInt(groupId), inviteEmail.trim());
+      const result = await api.inviteAdvisorToGroup(parseInt(groupId), userId, inviteEmail.trim());
       setInviteResult({ link: result.inviteLink, qr: result.qrImageUrl });
       setInviteEmail('');
       alert(result.message);
@@ -467,13 +468,13 @@ export default function GroupDetailPage() {
   // Get current member IDs to check who's already in group
   const memberIds = members.map(m => m.userId);
 
-  // Student invite handler (Step 4)
+  // Ham moi mot sinh vien vao nhom bang email truong.
   const handleInviteStudent = async () => {
     if (!groupId || !studentInviteEmail.trim()) return;
     setStudentInviteLoading(true);
     setStudentInviteResult(null);
     try {
-      const result = await api.inviteStudentToGroup(parseInt(groupId), studentInviteEmail.trim());
+      const result = await api.inviteStudentToGroup(parseInt(groupId), userId, studentInviteEmail.trim());
       setStudentInviteResult({ link: result.inviteLink, qr: result.qrImageUrl });
       setStudentInviteEmail('');
       alert(result.message);
@@ -483,7 +484,7 @@ export default function GroupDetailPage() {
     setStudentInviteLoading(false);
   };
 
-  // Bulk invite from Excel handler
+  // UC29: Ham upload Excel, backend doc cot MSSV de them/moi nhieu sinh vien vao nhom.
   const handleBulkInviteStudents = async () => {
     if (!groupId || !studentExcelFile) return;
     setStudentInviteLoading(true);
@@ -667,7 +668,7 @@ export default function GroupDetailPage() {
                     👨‍🏫 Thêm cố vấn
                   </button>
                 )}
-                {myRole === 'silver_key' && (
+                {(myRole === 'silver_key' || (isCreator && user?.role === 'faculty_union')) && (
                   <button
                     className="btn btn-primary"
                     onClick={() => { setShowStudentInviteModal(true); setStudentInviteResult(null); setBulkInviteResult(null); setStudentExcelFile(null); }}
@@ -686,6 +687,7 @@ export default function GroupDetailPage() {
                 Tham gia
               </button>
             )}
+            {!isCreator && user && <ReportButton reporterId={user.id} targetType="group" targetId={group.id} className="btn btn-secondary" />}
           </div>
         </div>
         {group.description && (
@@ -791,15 +793,6 @@ export default function GroupDetailPage() {
                 buttonLabel="Tạo bài viết"
                 onOpen={() => setShowPostModal(true)}
               />
-              {isAdmin && (
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => setShowPollCreator(true)}
-                  style={{ padding: '10px 20px' }}
-                >
-                  📊 Tạo bình chọn
-                </button>
-              )}
             </div>
           )}
 
@@ -1029,6 +1022,7 @@ export default function GroupDetailPage() {
           groupId={parseInt(groupId || '0')}
           title={`Đăng bài trong nhóm ${group?.name || ''}`}
           onClose={() => setShowPostModal(false)}
+          onCreatePoll={() => { setShowPostModal(false); setShowPollCreator(true); }}
           onSuccess={handleCreatePostSuccess}
         />
       )}
@@ -1041,12 +1035,13 @@ export default function GroupDetailPage() {
       )}
 
       {/* Poll Creator Modal */}
-      {showPollCreator && isAdmin && (
+      {showPollCreator && isMember && (
         <div className="modal-backdrop" onClick={() => setShowPollCreator(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <PollCreator
               onSubmit={handleCreatePoll}
               onCancel={() => setShowPollCreator(false)}
+              submitting={loading}
             />
           </div>
         </div>

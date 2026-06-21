@@ -1,6 +1,7 @@
 package com.app.backend.config;
 
 import com.app.backend.service.AuthTokenService;
+import com.app.backend.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
@@ -12,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -28,16 +30,18 @@ import java.util.regex.Pattern;
 
 @Component
 public class AuthTokenFilter extends OncePerRequestFilter {
-    private static final Set<String> IDENTITY_FIELDS = Set.of("userId", "viewerId", "adminId", "senderId", "authorId");
+    private static final Set<String> IDENTITY_FIELDS = Set.of("userId", "viewerId", "adminId", "reporterId", "senderId", "authorId");
     private static final Pattern USER_PATH = Pattern.compile("^/api/users/(\\d+)(/.*)?$");
     private static final Pattern CONVERSATION_PATH = Pattern.compile("^/api/conversations/between/(\\d+)/(\\d+)$");
 
     private final AuthTokenService tokenService;
     private final ObjectMapper objectMapper;
+    private final UserRepository userRepository;
 
-    public AuthTokenFilter(AuthTokenService tokenService, ObjectMapper objectMapper) {
+    public AuthTokenFilter(AuthTokenService tokenService, ObjectMapper objectMapper, UserRepository userRepository) {
         this.tokenService = tokenService;
         this.objectMapper = objectMapper;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -48,7 +52,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                 || path.equals("/api/auth/login")
                 || path.equals("/api/auth/register")
                 || path.equals("/api/auth/register/request-otp")
-                || path.equals("/api/auth/register/resend-otp");
+                || path.equals("/api/auth/register/resend-otp")
+                || path.equals("/api/files/registration-signature")
+                || path.startsWith("/api/catalog/");
     }
 
     @Override
@@ -58,11 +64,17 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             String header = request.getHeader("Authorization");
             String token = header != null && header.startsWith("Bearer ") ? header.substring(7) : null;
             Long currentUserId = tokenService.parseUserId(token);
+            var currentUser = userRepository.findById(currentUserId)
+                    .orElseThrow(() -> new IllegalArgumentException("User not found"));
+            if (Boolean.TRUE.equals(currentUser.getAccountLocked())) {
+                throw new IllegalArgumentException("Tài khoản đã bị khóa");
+            }
             HttpServletRequest guardedRequest = guardJsonBody(request, currentUserId);
             guardRequestIdentity(guardedRequest, currentUserId);
 
             var authentication = new UsernamePasswordAuthenticationToken(
-                    String.valueOf(currentUserId), null, List.of());
+                    String.valueOf(currentUserId), null,
+                    List.of(new SimpleGrantedAuthority("ROLE_" + currentUser.getRole().toUpperCase())));
             SecurityContextHolder.getContext().setAuthentication(authentication);
             chain.doFilter(guardedRequest, response);
         } catch (IllegalArgumentException ex) {

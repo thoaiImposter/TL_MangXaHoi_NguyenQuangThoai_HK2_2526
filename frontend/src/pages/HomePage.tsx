@@ -4,10 +4,10 @@ import PostComposerBar from '../components/PostComposerBar';
 import PostComposerModal from '../components/PostComposerModal';
 import PostCard from '../components/PostCard';
 import ShareCard from '../components/ShareCard';
-import PollCreator from '../components/PollCreator';
+import PollCreator, { type PollDraft } from '../components/PollCreator';
 import { api } from '../lib/api';
 import { uploadFileUrl } from '../lib/upload';
-import type { Friendship, PostFeedItem, PostShare, User } from '../types';
+import type { Friendship, Group, PostFeedItem, PostShare, User } from '../types';
 
 type HomePageProps = {
   user: User;
@@ -32,6 +32,8 @@ function HomePage({ user }: HomePageProps) {
   const [error, setError] = useState('');
   const [commentLikeState, setCommentLikeState] = useState<Record<number, { likeCount: number; likedByMe: boolean }>>({});
   const [pendingRequests, setPendingRequests] = useState<Friendship[]>([]);
+  const [friends, setFriends] = useState<Friendship[]>([]);
+  const [myGroups, setMyGroups] = useState<Group[]>([]);
   const [feedPage, setFeedPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -41,7 +43,14 @@ function HomePage({ user }: HomePageProps) {
     ...visibleFeed.map((post) => ({ kind: 'post' as const, createdAt: post.createdAt, post })),
     ...shares.filter((share) => share.sharedByUserId !== user.id).map((share) => ({ kind: 'share' as const, createdAt: share.createdAt, share })),
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [visibleFeed, shares, user.id]);
-  const myPosts = useMemo(() => feed.filter((post) => post.authorId === user.id), [feed, user.id]);
+  const friendUsers = useMemo(() => friends.map((friend) => {
+    const isRequester = friend.requesterId === user.id;
+    return {
+      id: isRequester ? friend.addresseeId : friend.requesterId,
+      name: isRequester ? friend.addresseeName : friend.requesterName,
+      avatar: isRequester ? friend.addresseeAvatar : friend.requesterAvatar,
+    };
+  }), [friends, user.id]);
 
   const fileToBase64 = (file: File) => uploadFileUrl(file, 'comments');
 
@@ -49,14 +58,18 @@ function HomePage({ user }: HomePageProps) {
     if (page === 0) setLoading(true);
     else setLoadingMore(true);
     try {
-      const [data, shareData, pending] = await Promise.all([
+      const [data, shareData, pending, friendData, groupData] = await Promise.all([
         api.getFeed(user.id, page, 10),
         api.getSharesForFeed(user.id, page, 10),
         api.getPendingFriendRequests(user.id),
+        api.getFriends(user.id),
+        api.getMyGroups(user.id, 0, 100),
       ]);
       setFeed((current) => (append ? [...current, ...data] : data));
       setShares((current) => (append ? [...current, ...shareData] : shareData));
       setPendingRequests(pending);
+      setFriends(friendData);
+      setMyGroups(groupData);
       if (data.length < 10 && shareData.length < 10) setHasMore(false);
       else setHasMore(true);
     } catch (err) {
@@ -78,7 +91,7 @@ function HomePage({ user }: HomePageProps) {
     loadFeed(next, true);
   };
 
-  const handleCreatePoll = async (pollData: { title: string; content: string; options: string[]; endDate?: string; allowMultiple: boolean }) => {
+  const handleCreatePoll = async (pollData: PollDraft) => {
     setLoading(true);
     try {
       await api.createPoll(user.id, pollData);
@@ -217,73 +230,41 @@ function HomePage({ user }: HomePageProps) {
 
   return (
     <div className="shell-grid">
-      <aside className="sidebar-left">
-        <section className="card" style={{ padding: 'var(--spacing-lg)' }}>
-          <div className="flex items-center gap-md mb-lg">
-            <div className="post-avatar" style={{ width: '56px', height: '56px' }}>
-              {user.avatar ? (
-                <img src={user.avatar} alt={user.fullName} />
-              ) : (
-                <div className="post-avatar-placeholder">{user.fullName.charAt(0).toUpperCase()}</div>
-              )}
-            </div>
-            <div>
-              <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--gray-900)' }}>{user.fullName}</h2>
-              <p className="text-muted text-sm">{user.email}</p>
-            </div>
+      <aside className="sidebar-left feed-sidebar">
+        <section className="card feed-side-card">
+          <div className="feed-side-heading">
+            <div><span className="eyebrow">Không gian của bạn</span><h3>Nhóm đã tham gia</h3></div>
+            <Link to="/groups">Xem tất cả</Link>
           </div>
-          <Link to="/profile" className="btn btn-secondary" style={{ width: '100%' }}>
-            Xem trang cá nhân
-          </Link>
-          <div className="flex gap-sm mt-lg" style={{ flexWrap: 'wrap' }}>
-            <span className="chip">
-              <span style={{ color: '#22c55e' }}>●</span> Online
-            </span>
-            <span className="chip">User #{user.id}</span>
+          <div className="feed-side-scroll">
+            {myGroups.length === 0 ? <p className="text-muted text-sm">Bạn chưa tham gia nhóm nào.</p> : myGroups.map((group) => (
+              <Link className="feed-side-item" to={`/groups/${group.id}`} key={group.id}>
+                <span className="feed-side-avatar square">
+                  {group.avatar ? <img src={group.avatar} alt={group.name} /> : group.name.charAt(0).toUpperCase()}
+                </span>
+                <span><strong>{group.name}</strong><small>{group.privacy === 'private' ? 'Nhóm riêng tư' : 'Nhóm công khai'}</small></span>
+              </Link>
+            ))}
           </div>
         </section>
 
-        <section className="card" style={{ padding: 'var(--spacing-lg)' }}>
-          <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: 'var(--spacing-md)', color: 'var(--gray-900)' }}>
-            Lời mời kết bạn
-          </h3>
-          {pendingRequests.length === 0 ? (
-            <p className="text-muted text-sm">Không có lời mời nào.</p>
-          ) : (
-            <div className="flex flex-col gap-md">
-              {pendingRequests.map((req) => (
-                <div key={req.id} className="flex items-center gap-md">
-                  <div className="post-avatar">
-                    {req.requesterAvatar ? (
-                      <img src={req.requesterAvatar} alt={req.requesterName} />
-                    ) : (
-                      <div className="post-avatar-placeholder">{req.requesterName.charAt(0).toUpperCase()}</div>
-                    )}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <Link to={`/users/${req.requesterId}`} style={{ fontWeight: '600', color: 'var(--gray-900)', textDecoration: 'none' }}>
-                      {req.requesterName}
-                    </Link>
-                  </div>
-                  <div className="flex gap-sm">
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => api.acceptFriendRequest(req.id, user.id).then(() => loadFeed()).catch((err) => setError(err instanceof Error ? err.message : 'Lỗi'))}
-                    >
-                      Chấp nhận
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => api.rejectOrCancelFriendRequest(req.id, user.id).then(() => loadFeed()).catch((err) => setError(err instanceof Error ? err.message : 'Lỗi'))}
-                    >
-                      Từ chối
-                    </button>
-                  </div>
+        {pendingRequests.length > 0 && <section className="card feed-side-card">
+          <div className="feed-side-heading"><div><span className="eyebrow">Kết nối</span><h3>Lời mời kết bạn</h3></div></div>
+          <div className="feed-side-scroll compact">
+            {pendingRequests.map((req) => (
+              <div className="feed-request-item" key={req.id}>
+                <Link className="feed-side-item" to={`/users/${req.requesterId}`}>
+                  <span className="feed-side-avatar">{req.requesterAvatar ? <img src={req.requesterAvatar} alt={req.requesterName} /> : req.requesterName.charAt(0).toUpperCase()}</span>
+                  <span><strong>{req.requesterName}</strong></span>
+                </Link>
+                <div className="feed-request-actions">
+                  <button className="btn btn-primary btn-sm" onClick={() => api.acceptFriendRequest(req.id, user.id).then(() => loadFeed())}>Chấp nhận</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => api.rejectOrCancelFriendRequest(req.id, user.id).then(() => loadFeed())}>Từ chối</button>
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
+              </div>
+            ))}
+          </div>
+        </section>}
       </aside>
 
       <section className="main-content">
@@ -353,56 +334,23 @@ function HomePage({ user }: HomePageProps) {
         </section>
       </section>
 
-      <aside className="sidebar-right">
-        <section className="card" style={{ padding: 'var(--spacing-lg)' }}>
-          <h3 style={{ fontSize: '14px', fontWeight: '700', marginBottom: 'var(--spacing-md)', color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Xu hướng
-          </h3>
-          <div className="flex flex-col gap-md">
-            <div className="flex justify-between items-center">
-              <div>
-                <p style={{ fontWeight: '600', color: 'var(--gray-900)' }}>#design</p>
-                <p className="text-muted text-sm">Clean social UI</p>
-              </div>
-              <span className="text-muted text-sm">12.4K</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <div>
-                <p style={{ fontWeight: '600', color: 'var(--gray-900)' }}>#profile</p>
-                <p className="text-muted text-sm">User settings</p>
-              </div>
-              <span className="text-muted text-sm">8.1K</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <div>
-                <p style={{ fontWeight: '600', color: 'var(--gray-900)' }}>#frontend</p>
-                <p className="text-muted text-sm">React + TSX</p>
-              </div>
-              <span className="text-muted text-sm">19.8K</span>
-            </div>
+      <aside className="sidebar-right feed-sidebar">
+        <section className="card feed-side-card">
+          <div className="feed-side-heading">
+            <div><span className="eyebrow">Đang kết nối</span><h3>Bạn bè</h3></div>
+            <Link to="/friends">{friendUsers.length}</Link>
           </div>
-        </section>
-
-        <section className="card" style={{ padding: 'var(--spacing-lg)' }}>
-          <h3 style={{ fontSize: '14px', fontWeight: '700', marginBottom: 'var(--spacing-md)', color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Bài viết của bạn
-          </h3>
-          {myPosts.length === 0 ? (
-            <p className="text-muted text-sm">Chưa có bài nào.</p>
-          ) : (
-            <div className="flex flex-col gap-md">
-              {myPosts.slice(0, 5).map((post) => (
-                <div key={post.id} className="flex justify-between items-center">
-                  <div>
-                    <p style={{ fontWeight: '600', color: 'var(--gray-900)' }}>{new Date(post.createdAt).toLocaleDateString()}</p>
-                    <p className="text-muted text-sm">
-                      {post.likeCount} thích · {post.commentCount} bình luận
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="feed-side-scroll friends">
+            {friendUsers.length === 0 ? <p className="text-muted text-sm">Chưa có bạn bè để hiển thị.</p> : friendUsers.map((friend) => (
+              <Link className="feed-side-item" to={`/users/${friend.id}`} key={friend.id}>
+                <span className="feed-side-avatar">
+                  {friend.avatar ? <img src={friend.avatar} alt={friend.name} /> : friend.name.charAt(0).toUpperCase()}
+                  <i />
+                </span>
+                <span><strong>{friend.name}</strong><small>Đang hoạt động</small></span>
+              </Link>
+            ))}
+          </div>
         </section>
       </aside>
 
@@ -421,6 +369,7 @@ function HomePage({ user }: HomePageProps) {
           errorMessage={error}
           closeDisabled={loading}
           onClose={resetComposer}
+          onCreatePoll={() => { setComposerOpen(false); setShowPollCreator(true); }}
           onSuccess={() => handleComposerSuccess(editingData ? 'Đã cập nhật bài viết.' : 'Đã đăng bài viết.')}
         />
       )}
@@ -431,6 +380,8 @@ function HomePage({ user }: HomePageProps) {
             <PollCreator
               onSubmit={handleCreatePoll}
               onCancel={() => setShowPollCreator(false)}
+              showVisibility
+              submitting={loading}
             />
           </div>
         </div>

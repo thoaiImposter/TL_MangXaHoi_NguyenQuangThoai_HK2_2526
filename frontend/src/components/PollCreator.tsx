@@ -1,219 +1,62 @@
 import { useState } from 'react';
+import { useModalScrollLock } from '../hooks/useModalScrollLock';
+
+export type PollDraft = {
+  title: string;
+  content: string;
+  visibility?: 'public' | 'friends' | 'private';
+  options: string[];
+  endDate?: string;
+  allowMultiple: boolean;
+};
 
 interface PollCreatorProps {
-  onSubmit: (data: { title: string; content: string; options: string[]; endDate?: string; allowMultiple: boolean }) => void;
+  onSubmit: (data: PollDraft) => void;
   onCancel: () => void;
+  showVisibility?: boolean;
+  submitting?: boolean;
 }
 
-export default function PollCreator({ onSubmit, onCancel }: PollCreatorProps) {
+export default function PollCreator({ onSubmit, onCancel, showVisibility = false, submitting = false }: PollCreatorProps) {
+  useModalScrollLock();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [visibility, setVisibility] = useState<'public' | 'friends' | 'private'>('public');
   const [options, setOptions] = useState(['', '']);
   const [endDate, setEndDate] = useState('');
   const [allowMultiple, setAllowMultiple] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleOptionChange = (index: number, value: string) => {
-    const newOptions = [...options];
-    newOptions[index] = value;
-    setOptions(newOptions);
-  };
-
-  const addOption = () => {
-    if (options.length < 10) {
-      setOptions([...options, '']);
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const question = title.trim();
+    const validOptions = options.map((option) => option.trim()).filter(Boolean);
+    if (!question) return setError('Vui lòng nhập câu hỏi bình chọn.');
+    if (validOptions.length < 2) return setError('Cần ít nhất 2 phương án.');
+    if (new Set(validOptions.map((option) => option.toLocaleLowerCase('vi'))).size !== validOptions.length) {
+      return setError('Các phương án không được trùng nhau.');
     }
-  };
-
-  const removeOption = (index: number) => {
-    if (options.length > 2) {
-      const newOptions = options.filter((_, i) => i !== index);
-      setOptions(newOptions);
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validate
-    if (!title.trim()) {
-      alert('Vui lòng nhập tiêu đề bình chọn');
-      return;
-    }
-
-    const validOptions = options.filter(opt => opt.trim());
-    if (validOptions.length < 2) {
-      alert('Vui lòng nhập ít nhất 2 phương án');
-      return;
-    }
-
-    onSubmit({
-      title,
-      content,
-      options: validOptions,
-      endDate: endDate || undefined,
-      allowMultiple,
-    });
+    setError('');
+    onSubmit({ title: question, content: content.trim(), visibility: showVisibility ? visibility : undefined, options: validOptions, endDate: endDate || undefined, allowMultiple });
   };
 
   return (
-    <form onSubmit={handleSubmit} style={{ padding: '16px' }}>
-      <h3 style={{ marginBottom: '16px' }}>📊 Tạo cuộc bình chọn</h3>
-
-      {/* Title */}
-      <div style={{ marginBottom: '16px' }}>
-        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
-          Tiêu đề *
-        </label>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Bạn muốn hỏi gì?"
-          style={{
-            width: '100%',
-            padding: '10px',
-            border: '1px solid #ddd',
-            borderRadius: '6px',
-            fontSize: '14px',
-          }}
-        />
+    <form className="poll-creator" onSubmit={handleSubmit}>
+      <div className="poll-creator-heading"><span className="poll-creator-icon">▥</span><div><p className="eyebrow">Bình chọn</p><h2 className="modal-title">Tạo cuộc bình chọn</h2></div></div>
+      {showVisibility && <div className="poll-visibility">{([['public', 'Công khai'], ['friends', 'Bạn bè'], ['private', 'Riêng tư']] as const).map(([value, label]) => <button className={`chip ${visibility === value ? 'active' : ''}`} key={value} type="button" onClick={() => setVisibility(value)}>{label}</button>)}</div>}
+      <label className="poll-field"><span>Câu hỏi</span><input className="form-input" value={title} maxLength={255} onChange={(event) => setTitle(event.target.value)} placeholder="Bạn muốn hỏi mọi người điều gì?" /></label>
+      <label className="poll-field"><span>Mô tả <small>(không bắt buộc)</small></span><textarea className="form-input form-textarea" rows={2} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Thêm một chút ngữ cảnh..." /></label>
+      <div className="poll-field">
+        <span>Phương án</span>
+        <div className="poll-option-editor">{options.map((option, index) => <div className="poll-option-input" key={index}><span>{index + 1}</span><input className="form-input" value={option} maxLength={255} onChange={(event) => setOptions((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Phương án ${index + 1}`} />{options.length > 2 && <button type="button" aria-label="Xóa phương án" onClick={() => setOptions((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>}</div>)}</div>
+        {options.length < 10 && <button className="poll-add-option" type="button" onClick={() => setOptions((current) => [...current, ''])}>+ Thêm phương án</button>}
       </div>
-
-      {/* Content */}
-      <div style={{ marginBottom: '16px' }}>
-        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
-          Nội dung (tùy chọn)
-        </label>
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Mô tả thêm về cuộc bình chọn..."
-          rows={3}
-          style={{
-            width: '100%',
-            padding: '10px',
-            border: '1px solid #ddd',
-            borderRadius: '6px',
-            fontSize: '14px',
-            resize: 'vertical',
-          }}
-        />
+      <div className="poll-settings">
+        <label className="poll-field"><span>Kết thúc lúc <small>(không bắt buộc)</small></span><input className="form-input" type="datetime-local" value={endDate} min={new Date().toISOString().slice(0, 16)} onChange={(event) => setEndDate(event.target.value)} /></label>
+        <label className="poll-check"><input type="checkbox" checked={allowMultiple} onChange={(event) => setAllowMultiple(event.target.checked)} /><span><strong>Cho phép chọn nhiều</strong><small>Người tham gia có thể chọn hơn một phương án.</small></span></label>
       </div>
-
-      {/* Options */}
-      <div style={{ marginBottom: '16px' }}>
-        <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
-          Phương án *
-        </label>
-        {options.map((option, index) => (
-          <div key={index} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-            <input
-              type="text"
-              value={option}
-              onChange={(e) => handleOptionChange(index, e.target.value)}
-              placeholder={`Phương án ${index + 1}`}
-              style={{
-                flex: 1,
-                padding: '10px',
-                border: '1px solid #ddd',
-                borderRadius: '6px',
-                fontSize: '14px',
-              }}
-            />
-            {options.length > 2 && (
-              <button
-                type="button"
-                onClick={() => removeOption(index)}
-                style={{
-                  padding: '8px 12px',
-                  border: 'none',
-                  background: '#dc3545',
-                  color: '#fff',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                }}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        ))}
-
-        {options.length < 10 && (
-          <button
-            type="button"
-            onClick={addOption}
-            style={{
-              padding: '8px 16px',
-              border: '1px dashed #1876f2',
-              background: 'transparent',
-              color: '#1876f2',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              width: '100%',
-            }}
-          >
-            + Thêm phương án
-          </button>
-        )}
-      </div>
-
-      {/* End date */}
-      <div style={{ marginBottom: '16px' }}>
-        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
-          Thời gian kết thúc (tùy chọn)
-        </label>
-        <input
-          type="datetime-local"
-          value={endDate}
-          onChange={(e) => setEndDate(e.target.value)}
-          min={new Date().toISOString().slice(0, 16)}
-          style={{
-            width: '100%',
-            padding: '10px',
-            border: '1px solid #ddd',
-            borderRadius: '6px',
-            fontSize: '14px',
-          }}
-        />
-        <small style={{ color: '#65676b', fontSize: '12px' }}>
-          Để trống nếu không muốn đặt thời gian kết thúc
-        </small>
-      </div>
-
-      {/* Allow multiple choices */}
-      <div style={{ marginBottom: '20px' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={allowMultiple}
-            onChange={(e) => setAllowMultiple(e.target.checked)}
-            style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-          />
-          <span>Cho phép chọn nhiều phương án</span>
-        </label>
-      </div>
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="btn btn-secondary"
-          style={{ padding: '10px 20px' }}
-        >
-          Hủy
-        </button>
-        <button
-          type="submit"
-          className="btn btn-primary"
-          style={{ padding: '10px 20px' }}
-        >
-          Tạo bình chọn
-        </button>
-      </div>
+      {error && <div className="alert alert-error">{error}</div>}
+      <div className="poll-creator-actions"><button className="btn btn-secondary" type="button" onClick={onCancel} disabled={submitting}>Hủy</button><button className="btn btn-primary" type="submit" disabled={submitting}>{submitting ? 'Đang tạo...' : 'Đăng bình chọn'}</button></div>
     </form>
   );
 }

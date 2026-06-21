@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { uploadFileUrl } from '../lib/upload';
 import { hasAcademicTitle, hasFaculty, hasStudentDetails, ROLE_LABELS } from '../lib/userRole';
-import type { User } from '../types';
+import { ACADEMIC_TITLE_OPTIONS, ACADEMIC_YEAR_OPTIONS, campusLabel } from '../lib/academicCatalog';
+import SearchableSelect from '../components/SearchableSelect';
+import ProfileImagePicker from '../components/ProfileImagePicker';
+import type { Faculty, Major, User } from '../types';
 
 type SettingsPageProps = {
   user: User;
@@ -14,21 +17,37 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
   const navigate = useNavigate();
   const [avatarPreview, setAvatarPreview] = useState(user.avatar ?? '');
   const [coverPreview, setCoverPreview] = useState(user.cover ?? '');
+  const [faculties, setFaculties] = useState<Faculty[]>([]);
+  const [majors, setMajors] = useState<Major[]>([]);
   const [form, setForm] = useState({
     fullName: user.fullName,
     avatar: user.avatar ?? '',
     cover: user.cover ?? '',
     bio: user.bio ?? '',
+    facultyId: '',
     faculty: user.faculty ?? '',
     className: user.className ?? '',
     academicYear: user.academicYear ?? '',
     academicTitle: user.academicTitle ?? '',
+    majorId: user.majorId ? String(user.majorId) : '',
   });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
+
+  useEffect(() => {
+    api.getFaculties().then(setFaculties).catch(() => setError('Không tải được danh sách khoa'));
+    api.getMajors().then(setMajors).catch(() => setError('Không tải được danh sách ngành đào tạo'));
+  }, []);
+
+  useEffect(() => {
+    const faculty = faculties.find((item) => item.name === user.faculty);
+    if (faculty) setForm((current) => ({ ...current, facultyId: String(faculty.id), faculty: faculty.name }));
+  }, [faculties, user.faculty]);
+
+  const filteredMajors = majors.filter((major) => major.facultyId === Number(form.facultyId));
 
   useEffect(() => {
     setAvatarPreview(user.avatar ?? '');
@@ -38,10 +57,12 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
       avatar: user.avatar ?? '',
       cover: user.cover ?? '',
       bio: user.bio ?? '',
+      facultyId: '',
       faculty: user.faculty ?? '',
       className: user.className ?? '',
       academicYear: user.academicYear ?? '',
       academicTitle: user.academicTitle ?? '',
+      majorId: user.majorId ? String(user.majorId) : '',
     });
   }, [user]);
 
@@ -57,9 +78,11 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
         cover: form.cover,
         bio: form.bio,
         faculty: hasFaculty(user.role) ? form.faculty : '',
+        facultyId: hasFaculty(user.role) && form.facultyId ? Number(form.facultyId) : null,
         className: hasStudentDetails(user.role) ? form.className : '',
         academicYear: hasStudentDetails(user.role) ? form.academicYear : '',
         academicTitle: hasAcademicTitle(user.role) ? form.academicTitle : '',
+        majorId: hasStudentDetails(user.role) && form.majorId ? Number(form.majorId) : null,
       });
       onUpdateUser(updated);
       setAvatarPreview(updated.avatar ?? '');
@@ -109,6 +132,25 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
     }
   };
 
+  const removeProfileImage = async (type: 'avatar' | 'cover') => {
+    setError('');
+    setMessage('');
+    try {
+      const updated = await api.updateProfile(user.id, { [type]: '' });
+      onUpdateUser(updated);
+      if (type === 'avatar') {
+        setAvatarPreview('');
+        setForm((current) => ({ ...current, avatar: '' }));
+      } else {
+        setCoverPreview('');
+        setForm((current) => ({ ...current, cover: '' }));
+      }
+      setMessage(type === 'avatar' ? 'Đã xóa ảnh đại diện.' : 'Đã xóa ảnh bìa.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không xóa được ảnh');
+    }
+  };
+
   return (
     <div className="profile-shell">
       <div className="card" style={{ padding: 'var(--spacing-xl)', marginBottom: 'var(--spacing-lg)' }}>
@@ -140,56 +182,18 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
         </div>
 
         <form onSubmit={submit}>
-          {/* Avatar and Cover Upload */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}>
-            <div className="form-group">
-              <label className="form-label">Ảnh đại diện</label>
-              <div style={{ marginBottom: 'var(--spacing-sm)' }}>
-                {avatarPreview ? (
-                  <img src={avatarPreview} alt="Avatar preview" style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--gray-200)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', color: 'var(--gray-500)' }}>
-                    {user.fullName.charAt(0).toUpperCase()}
-                  </div>
-                )}
-              </div>
-              <input
-                type="file"
-                accept="image/*"
-                className="form-input"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  e.currentTarget.value = '';
-                  await handleAvatarUpload(file);
-                }}
-                disabled={loading || uploadingAvatar}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Ảnh bìa</label>
-              <div style={{ marginBottom: 'var(--spacing-sm)' }}>
-                {coverPreview ? (
-                  <img src={coverPreview} alt="Cover preview" style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: 'var(--radius-md)' }} />
-                ) : (
-                  <div style={{ width: '100%', height: '100px', background: 'var(--gray-200)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray-500)' }}>
-                    Chưa có ảnh bìa
-                  </div>
-                )}
-              </div>
-              <input
-                type="file"
-                accept="image/*"
-                className="form-input"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0] ?? null;
-                  e.currentTarget.value = '';
-                  await handleCoverUpload(file);
-                }}
-                disabled={loading || uploadingCover}
-              />
-            </div>
-          </div>
+          <ProfileImagePicker
+            avatarUrl={avatarPreview}
+            coverUrl={coverPreview}
+            name={form.fullName}
+            uploadingAvatar={uploadingAvatar}
+            uploadingCover={uploadingCover}
+            disabled={loading}
+            onAvatarSelect={async (file) => handleAvatarUpload(file)}
+            onCoverSelect={async (file) => handleCoverUpload(file)}
+            onAvatarRemove={() => void removeProfileImage('avatar')}
+            onCoverRemove={() => void removeProfileImage('cover')}
+          />
 
           {/* Full Name */}
           <div className="form-group" style={{ marginBottom: 'var(--spacing-md)' }}>
@@ -216,20 +220,37 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
               {hasFaculty(user.role) && (
                 <div className="form-group">
                   <label className="form-label">{user.role === 'faculty_union' ? 'Khoa quản lý' : 'Khoa'}</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Khoa Công nghệ Thông tin"
-                    value={form.faculty}
-                    onChange={(e) => setForm({ ...form, faculty: e.target.value })}
+                  <SearchableSelect
+                    value={form.facultyId}
+                    options={faculties.map((faculty) => ({ value: String(faculty.id), label: faculty.name, keywords: faculty.code }))}
+                    onChange={(facultyId) => {
+                      const faculty = faculties.find((item) => String(item.id) === facultyId);
+                      setForm({ ...form, facultyId, faculty: faculty?.name ?? '', majorId: '' });
+                    }}
+                    placeholder="Chọn khoa"
                     disabled={loading}
                     required
                   />
                 </div>
               )}
 
-              {hasStudentDetails(user.role) && (
-                <>
+                {hasStudentDetails(user.role) && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Ngành đào tạo</label>
+                      <SearchableSelect
+                        value={form.majorId}
+                        options={filteredMajors.map((major) => ({
+                          value: String(major.id),
+                          label: `${major.name} (${major.code}) - ${campusLabel(major.campus)}`,
+                          keywords: `${major.code} ${major.name}`,
+                        }))}
+                        onChange={(majorId) => setForm({ ...form, majorId })}
+                        placeholder={form.facultyId ? 'Chọn ngành đào tạo' : 'Chọn khoa trước'}
+                        disabled={loading || !form.facultyId}
+                        required
+                      />
+                    </div>
                   <div className="form-group">
                     <label className="form-label">Lớp</label>
                     <input
@@ -244,13 +265,13 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Niên khóa</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="2021-2025"
+                    <SearchableSelect
                       value={form.academicYear}
-                      onChange={(e) => setForm({ ...form, academicYear: e.target.value })}
+                      options={ACADEMIC_YEAR_OPTIONS.map((year) => ({ value: year, label: year }))}
+                      onChange={(academicYear) => setForm({ ...form, academicYear })}
+                      placeholder="Chọn niên khóa"
                       disabled={loading}
+                      required
                     />
                   </div>
                 </>
@@ -259,12 +280,11 @@ function SettingsPage({ user, onUpdateUser }: SettingsPageProps) {
               {hasAcademicTitle(user.role) && (
                 <div className="form-group">
                   <label className="form-label">Học vị</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Thạc sĩ, Tiến sĩ..."
+                  <SearchableSelect
                     value={form.academicTitle}
-                    onChange={(e) => setForm({ ...form, academicTitle: e.target.value })}
+                    options={ACADEMIC_TITLE_OPTIONS.map((title) => ({ value: title, label: title }))}
+                    onChange={(academicTitle) => setForm({ ...form, academicTitle })}
+                    placeholder="Chọn học vị"
                     disabled={loading}
                     required
                   />

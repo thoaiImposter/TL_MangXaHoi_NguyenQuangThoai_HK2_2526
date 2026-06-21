@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import PostCard from '../components/PostCard';
 import PostComposerBar from '../components/PostComposerBar';
 import PostComposerModal from '../components/PostComposerModal';
+import PollCreator, { type PollDraft } from '../components/PollCreator';
 import ProfileHeader from '../components/ProfileHeader';
 import ShareCard from '../components/ShareCard';
 import { api } from '../lib/api';
@@ -21,6 +22,7 @@ function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
   const navigate = useNavigate();
   const [personalPosts, setPersonalPosts] = useState<PostFeedItem[]>([]);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [showPollCreator, setShowPollCreator] = useState(false);
   const [editingData, setEditingData] = useState<{ id: number; content: string; media: { mediaUrl: string }[]; visibility?: string } | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<number, Draft>>({});
   const [replyDrafts, setReplyDrafts] = useState<Record<number, Draft>>({});
@@ -117,6 +119,21 @@ function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
     resetComposer();
     setFeedPage(0);
     await loadFeed(0, false);
+  };
+
+  const handleCreatePoll = async (pollData: PollDraft) => {
+    setLoading(true);
+    try {
+      await api.createPoll(user.id, pollData);
+      setShowPollCreator(false);
+      setMessage('Đã đăng cuộc bình chọn.');
+      setFeedPage(0);
+      await loadFeed(0, false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không tạo được cuộc bình chọn');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const beginEdit = (postId: number) => {
@@ -573,8 +590,16 @@ function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
           errorMessage={error}
           closeDisabled={loading}
           onClose={resetComposer}
+          onCreatePoll={() => { setComposerOpen(false); setShowPollCreator(true); }}
           onSuccess={() => handleComposerSuccess(editingData ? 'Đã cập nhật bài viết.' : 'Đã đăng bài viết.')}
         />
+      )}
+      {showPollCreator && (
+        <div className="modal-backdrop" onClick={() => setShowPollCreator(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <PollCreator onSubmit={handleCreatePoll} onCancel={() => setShowPollCreator(false)} showVisibility submitting={loading} />
+          </div>
+        </div>
       )}
     </div>
   );

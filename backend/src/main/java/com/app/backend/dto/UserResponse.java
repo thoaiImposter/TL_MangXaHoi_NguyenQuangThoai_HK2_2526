@@ -14,6 +14,10 @@ public class UserResponse {
     private String className;
     private String academicYear;
     private String academicTitle;
+    private Long majorId;
+    private String majorCode;
+    private String majorName;
+    private String majorCampus;
     private LocalDateTime createdAt;
     private Long friendCount;
     private Boolean accountProtection;
@@ -41,7 +45,7 @@ public class UserResponse {
         this.friendCount = friendCount;
     }
 
-    public UserResponse(Long id, String email, String fullName, String role, String avatar, String cover, String bio, String faculty, String className, String academicYear, String academicTitle, LocalDateTime createdAt, Long friendCount, Boolean accountProtection) {
+    public UserResponse(Long id, String email, String fullName, String role, String avatar, String cover, String bio, String faculty, String className, String academicYear, String academicTitle, Long majorId, String majorCode, String majorName, String majorCampus, LocalDateTime createdAt, Long friendCount, Boolean accountProtection) {
         this.id = id;
         this.email = email;
         this.fullName = fullName;
@@ -53,9 +57,18 @@ public class UserResponse {
         this.className = className;
         this.academicYear = academicYear;
         this.academicTitle = academicTitle;
+        this.majorId = majorId;
+        this.majorCode = majorCode;
+        this.majorName = majorName;
+        this.majorCampus = majorCampus;
         this.createdAt = createdAt;
         this.friendCount = friendCount;
         this.accountProtection = accountProtection;
+    }
+
+    public UserResponse(Long id, String email, String fullName, String role, String avatar, String cover, String bio, String faculty, String className, String academicYear, String academicTitle, LocalDateTime createdAt, Long friendCount, Boolean accountProtection) {
+        this(id, email, fullName, role, avatar, cover, bio, faculty, className, academicYear, academicTitle,
+            null, null, null, null, createdAt, friendCount, accountProtection);
     }
 
     public Long getId() { return id; }
@@ -69,6 +82,10 @@ public class UserResponse {
     public String getClassName() { return className; }
     public String getAcademicYear() { return academicYear; }
     public String getAcademicTitle() { return academicTitle; }
+    public Long getMajorId() { return majorId; }
+    public String getMajorCode() { return majorCode; }
+    public String getMajorName() { return majorName; }
+    public String getMajorCampus() { return majorCampus; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public Long getFriendCount() { return friendCount; }
     public Boolean getAccountProtection() { return accountProtection; }

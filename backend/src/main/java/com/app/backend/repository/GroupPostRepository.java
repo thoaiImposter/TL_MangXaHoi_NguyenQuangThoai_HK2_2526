@@ -23,6 +23,7 @@ public interface GroupPostRepository extends JpaRepository<GroupPost, Long> {
     Page<GroupPost> findPendingPosts(@Param("groupId") Long groupId, Pageable pageable);
 
     Optional<GroupPost> findByPostId(Long postId);
+    List<GroupPost> findByGroupId(Long groupId);
 
     List<GroupPost> findByGroupIdAndIsApproved(Long groupId, Boolean isApproved);
 

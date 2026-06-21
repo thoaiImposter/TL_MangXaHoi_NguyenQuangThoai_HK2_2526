@@ -11,6 +11,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 
 @Service
 public class GroupService {
@@ -29,6 +31,7 @@ public class GroupService {
     private final PostMediaRepository postMediaRepository;
     private final PollOptionRepository pollOptionRepository;
     private final PrivacyAccessService privacyAccessService;
+    private final CloudinaryCleanupService cloudCleanup;
 
     public GroupService(GroupRepository groupRepository,
                        GroupMemberRepository groupMemberRepository,
@@ -43,7 +46,8 @@ public class GroupService {
                        CommentMediaRepository commentMediaRepository,
                        PostMediaRepository postMediaRepository,
                        PollOptionRepository pollOptionRepository,
-                       PrivacyAccessService privacyAccessService) {
+                       PrivacyAccessService privacyAccessService,
+                       CloudinaryCleanupService cloudCleanup) {
         this.groupRepository = groupRepository;
         this.groupMemberRepository = groupMemberRepository;
         this.groupPostRepository = groupPostRepository;
@@ -58,6 +62,7 @@ public class GroupService {
         this.postMediaRepository = postMediaRepository;
         this.pollOptionRepository = pollOptionRepository;
         this.privacyAccessService = privacyAccessService;
+        this.cloudCleanup = cloudCleanup;
     }
 
     // ==================== Group CRUD Operations ====================
@@ -104,11 +109,12 @@ public class GroupService {
         return toGroupResponse(group);
     }
 
+    @Transactional
     public GroupResponse updateGroup(Long groupId, Long userId, GroupRequest request) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
 
-        // Check if user is admin
+        // Chi admin cua nhom moi duoc cap nhat thong tin nhom.
         GroupMember member = groupMemberRepository.findByGroupIdAndUserId(groupId, userId)
             .orElseThrow(() -> new IllegalArgumentException("You are not a member of this group"));
 
@@ -122,10 +128,13 @@ public class GroupService {
         if (request.description() != null) {
             group.setDescription(request.description().trim());
         }
+        List<String> replacedAssets = new ArrayList<>();
         if (request.avatar() != null) {
+            if (!Objects.equals(group.getAvatar(), request.avatar())) replacedAssets.add(group.getAvatar());
             group.setAvatar(request.avatar());
         }
         if (request.cover() != null) {
+            if (!Objects.equals(group.getCover(), request.cover())) replacedAssets.add(group.getCover());
             group.setCover(request.cover());
         }
         if (request.privacy() != null) {
@@ -136,14 +145,16 @@ public class GroupService {
         }
 
         Group savedGroup = groupRepository.save(group);
+        cloudCleanup.schedule(replacedAssets);
         return toGroupResponse(savedGroup);
     }
 
+    @Transactional
     public void deleteGroup(Long groupId, Long userId) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
 
-        // Only the creator (gold key) can delete the group
+        // Chi nguoi tao nhom/gold_key moi duoc xoa nhom.
         GroupMember member = groupMemberRepository.findByGroupIdAndUserId(groupId, userId)
             .orElseThrow(() -> new IllegalArgumentException("You are not a member of this group"));
 
@@ -151,7 +162,12 @@ public class GroupService {
             throw new IllegalArgumentException("Only the group creator can delete the group");
         }
 
+        cloudCleanup.scheduleGroupAssets(groupId);
+        List<Long> postIds = groupPostRepository.findByGroupId(groupId).stream()
+            .map(groupPost -> groupPost.getPost().getId()).toList();
         groupRepository.delete(group);
+        groupRepository.flush();
+        postRepository.deleteAllById(postIds);
     }
 
     // ==================== Group Discovery ====================
@@ -180,19 +196,19 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
 
-        // Check if user is banned
+        // User bi cam thi khong duoc tham gia nhom.
         if (groupBanRepository.existsByGroupIdAndUserId(groupId, userId)) {
             throw new IllegalArgumentException("You have been banned from this group");
         }
 
-        // Check if already a member
+        // Neu da la thanh vien active thi khong tao request moi.
         if (groupMemberRepository.existsByGroupIdAndUserIdAndStatus(groupId, userId, "active")) {
             throw new IllegalArgumentException("You are already a member of this group");
         }
 
-        // For private groups or groups requiring approval, create a join request
+        // Nhom private hoac can duyet thi tao join request.
         if ("private".equals(group.getPrivacy()) || group.getApprovalRequired()) {
-            // Check for existing pending request
+            // Neu da co request pending thi khong tao trung.
             if (groupJoinRequestRepository.existsByGroupIdAndUserIdAndStatus(groupId, userId, "pending")) {
                 throw new IllegalArgumentException("You already have a pending request to join this group");
             }
@@ -238,7 +254,7 @@ public class GroupService {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
 
-        // Check if user is admin
+        // Chi admin nhom moi duoc duyet yeu cau tham gia.
         GroupMember admin = groupMemberRepository.findByGroupIdAndUserId(groupId, adminId)
             .orElseThrow(() -> new IllegalArgumentException("You are not a member of this group"));
 
@@ -272,7 +288,7 @@ public class GroupService {
         member.setStatus("active");
         groupMemberRepository.save(member);
 
-        // Notify the user
+        // Tao thong bao cho user sau khi duoc duyet vao nhom.
         createGroupNotification(joinRequest.getUser().getId(), groupId, "join_approved",
             "Yêu cầu tham gia nhóm của bạn đã được phê duyệt", null, null);
 
@@ -417,42 +433,51 @@ public class GroupService {
         return toGroupMemberResponse(targetMember);
     }
 
-    // ==================== Advisor Management (Step 3) ====================
+    // ==================== Advisor Management ====================
 
     /**
-     * Get the GroupMember entity directly (for controller-level checks)
+     * Ham lay ban ghi thanh vien nhom de controller kiem tra quyen.
      */
     public GroupMember getGroupMemberEntity(Long groupId, Long userId) {
         return groupMemberRepository.findByGroupIdAndUserId(groupId, userId).orElse(null);
     }
 
     /**
-     * Check if a user is an active member of a group
+     * Ham kiem tra user co dang la thanh vien active cua nhom khong.
      */
     public boolean isMemberOfGroup(Long groupId, Long userId) {
         return groupMemberRepository.existsByGroupIdAndUserIdAndStatus(groupId, userId, "active");
     }
 
     /**
-     * Add a student to a group as a regular member.
+     * Ham them sinh vien vao nhom voi vai tro member.
      */
     public void addStudentToGroup(Long groupId, Long studentId, Long adminId) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
 
+        GroupMember admin = validateStudentManager(groupId, adminId);
         User student = userRepository.findById(studentId)
             .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        if (!"student".equals(student.getRole())) {
+            throw new IllegalArgumentException("Chỉ có thể thêm tài khoản sinh viên vào lớp");
+        }
+        if ("faculty_union".equals(admin.getUser().getRole())
+                && (admin.getUser().getFaculty() == null || !admin.getUser().getFaculty().equals(student.getFaculty()))) {
+            throw new IllegalArgumentException("Sinh viên không thuộc cùng khoa với người quản lý lớp");
+        }
 
-        // Check if already a member
+        // Neu da tung la thanh vien thi kich hoat lai thay vi tao ban ghi moi.
         GroupMember existing = groupMemberRepository.findByGroupIdAndUserId(groupId, studentId).orElse(null);
         if (existing != null) {
             if ("active".equals(existing.getStatus())) {
                 throw new IllegalArgumentException("User is already a member");
             }
-            // Reactivate
             existing.setStatus("active");
             existing.setRole("member");
             groupMemberRepository.save(existing);
+            createGroupNotification(studentId, groupId, "join_approved",
+                "Bạn đã được thêm vào lớp " + group.getName(), "group", groupId);
             return;
         }
 
@@ -462,37 +487,58 @@ public class GroupService {
         newMember.setRole("member");
         newMember.setStatus("active");
         groupMemberRepository.save(newMember);
+        createGroupNotification(studentId, groupId, "join_approved",
+            "Bạn đã được thêm vào lớp " + group.getName(), "group", groupId);
     }
 
     /**
-     * Add an advisor to the group with silver_key role.
-     * If the user is already a member, upgrade their role to silver_key.
+     * Ham kiem tra nguoi thao tac co quyen quan ly sinh vien cua nhom/lop.
+     */
+    public GroupMember validateStudentManager(Long groupId, Long adminId) {
+        GroupMember admin = groupMemberRepository.findByGroupIdAndUserId(groupId, adminId)
+            .orElseThrow(() -> new IllegalArgumentException("Bạn không thuộc nhóm lớp này"));
+        String actorRole = admin.getUser().getRole();
+        if (!"active".equals(admin.getStatus())
+                || (!admin.isGoldKey() && !admin.isSilverKey())
+                || (!"advisor".equals(actorRole) && !"faculty_union".equals(actorRole))) {
+            throw new IllegalArgumentException("Chỉ CVHT hoặc Đoàn khoa quản lý lớp mới được mời sinh viên");
+        }
+        return admin;
+    }
+
+    /**
+     * Ham them co van vao nhom voi quyen silver_key.
      */
     public GroupMemberResponse addAdvisorToGroup(Long groupId, Long advisorId, Long adminId) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
 
-        // Validate admin is gold_key
+        // Chi nguoi tao nhom/gold_key moi duoc them co van.
         GroupMember admin = groupMemberRepository.findByGroupIdAndUserId(groupId, adminId)
             .orElseThrow(() -> new IllegalArgumentException("You are not a member of this group"));
 
         if (!admin.isGoldKey()) {
             throw new IllegalArgumentException("Only the group creator (Gold Key) can add advisors");
         }
+        if (!"faculty_union".equals(admin.getUser().getRole())) {
+            throw new IllegalArgumentException("Chỉ Đoàn khoa tạo nhóm mới được thêm giảng viên cố vấn");
+        }
 
-        // Validate target user exists and is an advisor
+        // Nguoi duoc them phai la tai khoan co vai tro advisor.
         User advisor = userRepository.findById(advisorId)
             .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         if (!"advisor".equals(advisor.getRole())) {
             throw new IllegalArgumentException("User is not an academic advisor");
         }
+        if (admin.getUser().getFaculty() == null || !admin.getUser().getFaculty().equals(advisor.getFaculty())) {
+            throw new IllegalArgumentException("Chỉ có thể thêm giảng viên thuộc cùng khoa");
+        }
 
-        // Check if already a member
+        // Neu co van da trong nhom thi nang quyen len silver_key neu can.
         GroupMember existingMember = groupMemberRepository.findByGroupIdAndUserId(groupId, advisorId).orElse(null);
         if (existingMember != null) {
             if ("active".equals(existingMember.getStatus())) {
-                // Already active member - upgrade to silver_key if not already
                 if ("silver_key".equals(existingMember.getRole())) {
                     throw new IllegalArgumentException("Cố vấn này đã có trong nhóm");
                 }
@@ -525,6 +571,23 @@ public class GroupService {
         return toGroupMemberResponse(newMember);
     }
 
+    public User validateAdvisorInvite(Long groupId, Long adminId, String advisorEmail) {
+        GroupMember admin = groupMemberRepository.findByGroupIdAndUserId(groupId, adminId)
+            .orElseThrow(() -> new IllegalArgumentException("Bạn không thuộc nhóm này"));
+        if (!admin.isGoldKey() || !"faculty_union".equals(admin.getUser().getRole())) {
+            throw new IllegalArgumentException("Chỉ Đoàn khoa tạo nhóm mới được mời giảng viên");
+        }
+        User advisor = userRepository.findByEmail(advisorEmail.trim().toLowerCase())
+            .orElseThrow(() -> new IllegalArgumentException("Email này chưa đăng ký tài khoản giảng viên"));
+        if (!"advisor".equals(advisor.getRole())) {
+            throw new IllegalArgumentException("Tài khoản được mời phải là giảng viên/cố vấn");
+        }
+        if (admin.getUser().getFaculty() == null || !admin.getUser().getFaculty().equals(advisor.getFaculty())) {
+            throw new IllegalArgumentException("Chỉ có thể mời giảng viên thuộc cùng khoa");
+        }
+        return advisor;
+    }
+
     // ==================== Ban Management ====================
 
     public void banUser(Long groupId, Long targetUserId, Long adminId, String reason) {
@@ -541,7 +604,7 @@ public class GroupService {
         User targetUser = userRepository.findById(targetUserId)
             .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        // Check if already banned
+        // Khong tao ban trung neu user da bi cam.
         if (groupBanRepository.existsByGroupIdAndUserId(groupId, targetUserId)) {
             throw new IllegalArgumentException("User is already banned from this group");
         }
@@ -553,7 +616,7 @@ public class GroupService {
         ban.setReason(reason);
         groupBanRepository.save(ban);
 
-        // Remove from members if they were a member
+        // Neu dang la thanh vien thi chuyen trang thai sang removed.
         groupMemberRepository.findByGroupIdAndUserId(groupId, targetUserId)
             .ifPresent(member -> {
                 if (!member.isGoldKey()) {
@@ -621,28 +684,48 @@ public class GroupService {
         return toGroupPostResponse(groupPost, userId);
     }
 
+    public GroupPostResponse createGroupAnnouncement(Long groupId, Long userId, PostRequest request) {
+        GroupMember sender = validateStudentManager(groupId, userId);
+        GroupPostResponse response = createGroupPost(groupId, userId, request);
+        for (GroupMember member : groupMemberRepository.findActiveMembers(groupId)) {
+            if (!member.getUser().getId().equals(userId)) {
+                createGroupNotification(member.getUser().getId(), groupId, "class_announcement",
+                    sender.getUser().getFullName() + " đã gửi thông báo mới trong lớp",
+                    "post", response.postId());
+            }
+        }
+        return response;
+    }
+
     public GroupPostResponse createGroupPoll(Long groupId, Long userId, String title, String content, 
                                               List<String> options, String endDate, boolean allowMultiple) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
 
-        // Check membership and admin role
+        // Polls follow the same membership and approval rules as regular group posts.
         GroupMember member = groupMemberRepository.findByGroupIdAndUserId(groupId, userId)
             .orElseThrow(() -> new IllegalArgumentException("You are not a member of this group"));
-
-        if (!member.isAdmin()) {
-            throw new IllegalArgumentException("Only administrators can create polls in this group");
-        }
 
         if (!"active".equals(member.getStatus())) {
             throw new IllegalArgumentException("Your membership in this group is not active");
         }
 
         // Validate poll options
-        if (options == null || options.size() < 2) {
+        List<String> normalizedOptions = options == null ? List.of() : options.stream()
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(option -> !option.isBlank())
+            .toList();
+        if (normalizedOptions.stream().map(option -> option.toLowerCase(Locale.ROOT)).distinct().count() != normalizedOptions.size()) {
+            throw new IllegalArgumentException("Poll options must be unique");
+        }
+        if (title == null || title.isBlank()) {
+            throw new IllegalArgumentException("Poll question is required");
+        }
+        if (normalizedOptions.size() < 2) {
             throw new IllegalArgumentException("Poll must have at least 2 options");
         }
-        if (options.size() > 10) {
+        if (normalizedOptions.size() > 10) {
             throw new IllegalArgumentException("Poll cannot have more than 10 options");
         }
 
@@ -660,9 +743,16 @@ public class GroupService {
         
         if (endDate != null && !endDate.isEmpty()) {
             try {
-                post.setPollEndDate(java.time.LocalDateTime.parse(endDate));
+                java.time.LocalDateTime parsedEndDate = java.time.LocalDateTime.parse(endDate);
+                if (!parsedEndDate.isAfter(java.time.LocalDateTime.now())) {
+                    throw new IllegalArgumentException("Poll end time must be in the future");
+                }
+                post.setPollEndDate(parsedEndDate);
             } catch (Exception e) {
-                // Ignore invalid date
+                if (e instanceof IllegalArgumentException illegalArgumentException) {
+                    throw illegalArgumentException;
+                }
+                throw new IllegalArgumentException("Invalid poll end time");
             }
         }
 
@@ -670,20 +760,20 @@ public class GroupService {
 
         // Create poll options
         List<PollOption> pollOptions = new ArrayList<>();
-        for (int i = 0; i < options.size(); i++) {
+        for (int i = 0; i < normalizedOptions.size(); i++) {
             PollOption option = new PollOption();
             option.setPost(savedPost);
-            option.setOptionText(options.get(i));
+            option.setOptionText(normalizedOptions.get(i));
             option.setOptionOrder(i);
             pollOptions.add(option);
         }
         pollOptionRepository.saveAll(pollOptions);
 
-        // Create group post record (auto-approved for admins)
+        // Apply the group's post approval policy.
         GroupPost groupPost = new GroupPost();
         groupPost.setPost(savedPost);
         groupPost.setGroup(group);
-        groupPost.setIsApproved(true);
+        groupPost.setIsApproved(!group.getApprovalRequired() || member.isAdmin());
         groupPostRepository.save(groupPost);
 
         return toGroupPostResponse(groupPost, userId);
@@ -742,6 +832,7 @@ public class GroupService {
         return toGroupPostResponse(groupPost, groupPost.getPost().getAuthor().getId());
     }
 
+    @Transactional
     public void rejectGroupPost(Long groupId, Long postId, Long adminId) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
@@ -760,6 +851,7 @@ public class GroupService {
             throw new IllegalArgumentException("Post does not belong to this group");
         }
 
+        cloudCleanup.schedulePostAssets(postId);
         // Delete the post
         postRepository.delete(groupPost.getPost());
         groupPostRepository.delete(groupPost);
@@ -769,6 +861,7 @@ public class GroupService {
             "post_rejected", "Bài viết của bạn đã bị từ chối", "post", postId);
     }
 
+    @Transactional
     public void deleteGroupPost(Long groupId, Long postId, Long userId) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
@@ -779,17 +872,18 @@ public class GroupService {
         GroupPost groupPost = groupPostRepository.findByPostId(postId)
             .orElseThrow(() -> new IllegalArgumentException("Group post not found"));
 
-        // Check if post belongs to this group
+        // Dam bao bai can xoa dung la bai cua nhom nay.
         if (!groupPost.getGroup().getId().equals(groupId)) {
             throw new IllegalArgumentException("Post does not belong to this group");
         }
 
-        // Admins can delete any post, regular members can only delete their own
+        // Admin xoa duoc moi bai, member chi xoa bai cua minh.
         boolean isPostAuthor = groupPost.getPost().getAuthor().getId().equals(userId);
         if (!member.isAdmin() && !isPostAuthor) {
             throw new IllegalArgumentException("You can only delete your own posts");
         }
 
+        cloudCleanup.schedulePostAssets(postId);
         // Delete the post (cascade will handle group_post)
         postRepository.delete(groupPost.getPost());
     }
@@ -813,6 +907,12 @@ public class GroupService {
                 like.setPost(post);
                 like.setUser(user);
                 postLikeRepository.save(like);
+                if (!post.getAuthor().getId().equals(userId)) {
+                    groupPostRepository.findByPostId(postId).ifPresent(groupPost ->
+                        createGroupNotification(post.getAuthor().getId(), groupPost.getGroup().getId(),
+                            "group_post_like", user.getFullName() + " đã thích bài viết của bạn",
+                            "post", postId));
+                }
                 return new PostLikeResponse(postId, postLikeRepository.countByPostId(postId), true);
             });
     }
@@ -843,6 +943,19 @@ public class GroupService {
         }
         PostComment saved = postCommentRepository.save(comment);
         saveCommentMedia(saved, request.getMedia());
+        GroupPost groupPost = groupPostRepository.findByPostId(postId).orElse(null);
+        if (groupPost != null && !post.getAuthor().getId().equals(userId)) {
+            createGroupNotification(post.getAuthor().getId(), groupPost.getGroup().getId(),
+                "group_post_comment", user.getFullName() + " đã bình luận bài viết của bạn",
+                "post", postId);
+        }
+        if (groupPost != null && comment.getParentComment() != null
+                && !comment.getParentComment().getAuthor().getId().equals(userId)
+                && !comment.getParentComment().getAuthor().getId().equals(post.getAuthor().getId())) {
+            createGroupNotification(comment.getParentComment().getAuthor().getId(), groupPost.getGroup().getId(),
+                "group_comment_reply", user.getFullName() + " đã trả lời bình luận của bạn",
+                "post", postId);
+        }
         return toCommentResponse(saved, null);
     }
 
@@ -858,10 +971,17 @@ public class GroupService {
         return groupNotificationRepository.countUnreadByUserId(userId);
     }
 
-    public void markGroupNotificationAsRead(Long notificationId) {
+    @Transactional
+    public void markGroupNotificationAsRead(Long notificationId, Long currentUserId) {
+        GroupNotification notification = groupNotificationRepository.findById(notificationId)
+            .orElseThrow(() -> new IllegalArgumentException("Notification not found"));
+        if (!notification.getUser().getId().equals(currentUserId)) {
+            throw new IllegalArgumentException("Bạn không thể cập nhật thông báo của người khác");
+        }
         groupNotificationRepository.markAsRead(notificationId);
     }
 
+    @Transactional
     public void markAllGroupNotificationsAsRead(Long userId) {
         groupNotificationRepository.markAllAsRead(userId);
     }

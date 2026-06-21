@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import MiniChat from './MiniChat';
-import type { User, NotificationItem } from '../types';
+import type { User, NotificationItem, GroupNotification } from '../types';
 
 type MiniChatItem = {
   userId?: number;
   groupId?: number;
   minimized: boolean;
+};
+
+type AppNotification = NotificationItem & {
+  source: 'general' | 'group';
+  groupId?: number;
 };
 
 type AppLayoutProps = {
@@ -27,15 +32,11 @@ function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onClos
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<User[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [query, setQuery] = useState(() => new URLSearchParams(location.search).get('q') ?? '');
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const searchRef = useRef<HTMLDivElement | null>(null);
   const notifRef = useRef<HTMLDivElement | null>(null);
   const notifiedRef = useRef<Set<number>>(new Set());
 
@@ -45,7 +46,6 @@ function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onClos
     const onClick = (event: MouseEvent) => {
       const target = event.target as Node;
       if (menuRef.current && !menuRef.current.contains(target)) setMenuOpen(false);
-      if (searchRef.current && !searchRef.current.contains(target)) setSearchOpen(false);
       if (notifRef.current && !notifRef.current.contains(target)) setNotifOpen(false);
     };
     document.addEventListener('click', onClick);
@@ -53,34 +53,46 @@ function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onClos
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(async () => {
-      if (!query.trim()) {
-        setResults([]);
-        return;
-      }
-      setLoading(true);
-      try {
-        const data = await api.searchUsers(query.trim());
-        setResults(data.filter((item) => item.id !== user.id).slice(0, 6));
-      } finally {
-        setLoading(false);
-      }
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [query, user.id]);
+    if (location.pathname === '/search') {
+      setQuery(new URLSearchParams(location.search).get('q') ?? '');
+    }
+  }, [location.pathname, location.search]);
 
-  const goToProfile = (userId: number) => {
-    setSearchOpen(false);
-    setQuery('');
-    navigate(`/users/${userId}`);
+  const submitSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const keyword = query.trim();
+    if (!keyword) return;
+    navigate(`/search?q=${encodeURIComponent(keyword)}`);
   };
 
   const loadNotifications = async () => {
     try {
-      const data = await api.getNotifications(user.id);
-      setNotifications(data);
-      const unread = await api.getUnreadNotificationCount(user.id);
-      setUnreadCount(unread.count);
+      const [general, group, generalUnread, groupUnread] = await Promise.all([
+        api.getNotifications(user.id),
+        api.getGroupNotifications(user.id),
+        api.getUnreadNotificationCount(user.id),
+        api.getUnreadGroupNotificationCount(user.id),
+      ]);
+      const groupItems: AppNotification[] = group.map((item: GroupNotification) => ({
+        id: item.id,
+        recipientId: item.userId,
+        actorId: item.groupId,
+        actorName: item.groupName,
+        actorAvatar: null,
+        type: item.type,
+        message: item.message,
+        targetType: item.targetType,
+        targetId: item.targetId,
+        isRead: item.isRead,
+        createdAt: item.createdAt,
+        source: 'group',
+        groupId: item.groupId,
+      }));
+      setNotifications([
+        ...general.map((item) => ({ ...item, source: 'general' as const })),
+        ...groupItems,
+      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      setUnreadCount(generalUnread.count + groupUnread.count);
     } catch {
       // ignore
     }
@@ -93,27 +105,36 @@ function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onClos
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id]);
 
-  const handleNotificationClick = async (n: NotificationItem) => {
+  const handleNotificationClick = async (n: AppNotification) => {
     if (!n.isRead) {
       try {
-        await api.markNotificationRead(n.id);
-        setNotifications((prev) => prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item)));
+        if (n.source === 'group') await api.markGroupNotificationRead(n.id);
+        else await api.markNotificationRead(n.id);
+        setNotifications((prev) => prev.map((item) =>
+          item.id === n.id && item.source === n.source ? { ...item, isRead: true } : item));
         setUnreadCount((prev) => Math.max(0, prev - 1));
       } catch {
         // ignore
       }
     }
     setNotifOpen(false);
-    if (n.targetType === 'user' && n.targetId) {
+    if (n.source === 'group' && n.groupId && n.targetType === 'post' && n.targetId) {
+      navigate(`/group/${n.groupId}/post/${n.targetId}`);
+    } else if (n.source === 'group' && n.groupId) {
+      navigate(`/groups/${n.groupId}`);
+    } else if (n.targetType === 'user' && n.targetId) {
       navigate(`/users/${n.targetId}`);
     } else if (n.targetType === 'post' && n.targetId) {
-      navigate(`/home`);
+      navigate(`/post/${n.targetId}`);
     }
   };
 
   const handleMarkAllRead = async () => {
     try {
-      await api.markAllNotificationsRead(user.id);
+      await Promise.all([
+        api.markAllNotificationsRead(user.id),
+        api.markAllGroupNotificationsRead(user.id),
+      ]);
       setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
       setUnreadCount(0);
     } catch {
@@ -158,29 +179,19 @@ function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onClos
           NLU Social
         </Link>
 
-        <div className="topbar-center" ref={searchRef}>
-          <button className="search-pill" type="button" onClick={() => setSearchOpen((value) => !value)}>
-            <span className="search-icon">⌕</span>
-            <span>Tìm ngườI dùng</span>
-          </button>
-          {searchOpen && (
-            <div className="search-popover">
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nhập tên ngườI dùng..." />
-              <div className="search-results">
-                {loading && <div className="subtle">Đang tìm...</div>}
-                {!loading && !results.length && <div className="subtle">Chưa có kết quả.</div>}
-                {results.map((item) => (
-                  <button key={item.id} className="search-result" type="button" onClick={() => goToProfile(item.id)}>
-                    <span className="search-avatar">{item.avatar ? <img src={item.avatar} alt={item.fullName} /> : item.fullName.charAt(0).toUpperCase()}</span>
-                    <span>
-                      <strong>{item.fullName}</strong>
-                      <span className="subtle">ID #{item.id}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="topbar-center">
+          <form className="search-pill" onSubmit={submitSearch}>
+            <svg className="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-4-4" />
+            </svg>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Tìm kiếm trên NLU Social"
+              aria-label="Tìm kiếm"
+            />
+          </form>
         </div>
 
         <div className="topbar-right">
@@ -217,7 +228,7 @@ function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onClos
                   {notifications.length === 0 && <div className="notif-empty">Chưa có thông báo</div>}
                   {notifications.map((n) => (
                     <button
-                      key={n.id}
+                      key={`${n.source}-${n.id}`}
                       type="button"
                       className={`notif-item${n.isRead ? '' : ' unread'}`}
                       onClick={() => handleNotificationClick(n)}
@@ -263,6 +274,11 @@ function AppLayout({ children, onLogout, user, miniChats, onOpenMiniChat, onClos
                 <button type="button" onClick={() => navigate('/privacy')}>
                   Riêng tư
                 </button>
+                {user.role === 'admin' && (
+                  <button type="button" onClick={() => navigate('/admin')}>
+                    Quản trị hệ thống
+                  </button>
+                )}
                 <button type="button" onClick={onToggleTheme}>
                   {theme === 'dark' ? 'Chế độ sáng' : 'Chế độ tối'}
                 </button>

@@ -41,4 +41,14 @@ public class FileUploadController {
             @RequestParam(value = "type", defaultValue = "file") String type) {
         return ResponseEntity.ok(storageService.createDirectUploadSignature(folder, type));
     }
+
+    @PostMapping("/registration-signature")
+    public ResponseEntity<?> createRegistrationUploadSignature(
+            @RequestParam String folder,
+            @RequestParam(defaultValue = "image") String type) {
+        if (!"image".equals(type) || (!"avatars".equals(folder) && !"covers".equals(folder))) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Đăng ký chỉ được tải ảnh đại diện hoặc ảnh bìa"));
+        }
+        return ResponseEntity.ok(storageService.createDirectUploadSignature(folder, type));
+    }
 }

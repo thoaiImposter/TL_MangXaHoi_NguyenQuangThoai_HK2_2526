@@ -13,35 +13,35 @@ import java.util.List;
 @Repository
 public interface PostShareRepository extends JpaRepository<PostShare, Long> {
 
-    // Find all shares for a specific post
+    // Tim tat ca luot chia se cua mot bai viet.
     Page<PostShare> findByOriginalPostId(Long postId, Pageable pageable);
 
-    // Find shares by user who shared (using @Query to avoid parsing issues)
+    // Tim cac bai chia se theo user da share.
     @Query("SELECT ps FROM PostShare ps WHERE ps.sharedBy.id = :userId")
     Page<PostShare> findBySharedByUserId(@Param("userId") Long userId, Pageable pageable);
 
-    // Find shares to a specific group
+    // Tim cac bai chia se vao mot nhom.
     Page<PostShare> findBySharedToGroupId(Long groupId, Pageable pageable);
 
     @Query("SELECT ps FROM PostShare ps WHERE ps.sharedToGroup IS NULL ORDER BY ps.createdAt DESC")
     Page<PostShare> findTimelineShares(Pageable pageable);
 
-    // Check if a user has already shared a post (using @Query to avoid parsing issues)
+    // Kiem tra user da chia se bai nay chua.
     @Query("SELECT COUNT(ps) > 0 FROM PostShare ps WHERE ps.originalPost.id = :postId AND ps.sharedBy.id = :userId")
     boolean existsByOriginalPostIdAndSharedByUserId(@Param("postId") Long postId, @Param("userId") Long userId);
 
-    // Find share by post and user (using @Query to avoid parsing issues)
+    // Tim ban ghi share theo bai goc va user share.
     @Query("SELECT ps FROM PostShare ps WHERE ps.originalPost.id = :postId AND ps.sharedBy.id = :userId")
     PostShare findByOriginalPostIdAndSharedByUserId(@Param("postId") Long postId, @Param("userId") Long userId);
 
-    // Count shares for a post
+    // Dem so luot chia se cua mot bai.
     long countByOriginalPostId(Long postId);
 
-    // Find shares with visibility check (for feed display)
+    // Tim share public/friends de hien thi tren feed.
     @Query("SELECT ps FROM PostShare ps WHERE ps.sharedBy.id = :userId AND ps.shareVisibility IN ('public', 'friends') ORDER BY ps.createdAt DESC")
     Page<PostShare> findVisibleSharesByUser(@Param("userId") Long userId, Pageable pageable);
 
-    // Find shares to groups where user is member
+    // Tim share trong cac nhom ma user la thanh vien.
     @Query("SELECT ps FROM PostShare ps WHERE ps.sharedToGroup.id IN :groupIds ORDER BY ps.createdAt DESC")
     Page<PostShare> findSharesToUserGroups(@Param("groupIds") List<Long> groupIds, Pageable pageable);
 }

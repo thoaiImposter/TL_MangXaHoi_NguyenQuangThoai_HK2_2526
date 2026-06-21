@@ -26,17 +26,22 @@ public class MessageService {
     private final GroupRepository groupRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final PrivacyAccessService privacyAccessService;
+    private final CloudinaryCleanupService cloudCleanup;
 
     public MessageService(MessageRepository messageRepository, UserRepository userRepository,
                           GroupRepository groupRepository, GroupMemberRepository groupMemberRepository,
-                          PrivacyAccessService privacyAccessService) {
+                          PrivacyAccessService privacyAccessService, CloudinaryCleanupService cloudCleanup) {
         this.messageRepository = messageRepository;
         this.userRepository = userRepository;
         this.groupRepository = groupRepository;
         this.groupMemberRepository = groupMemberRepository;
         this.privacyAccessService = privacyAccessService;
+        this.cloudCleanup = cloudCleanup;
     }
 
+    /**
+     * Ham gui tin nhan ca nhan, kiem tra quyen nhan tin va luu message.
+     */
     @Transactional
     public MessageResponse sendMessage(Long senderId, Long receiverId, String content, String mediaUrl) {
         User sender = userRepository.findById(senderId)
@@ -62,21 +67,33 @@ public class MessageService {
         return toResponse(saved);
     }
 
+    /**
+     * Ham lay toan bo hoi thoai giua hai user.
+     */
     public List<MessageResponse> getConversation(Long userId1, Long userId2) {
         return messageRepository.findConversation(userId1, userId2).stream()
             .map(this::toResponse).toList();
     }
 
+    /**
+     * Ham lay cac tin nhan chua doc cua user.
+     */
     public List<MessageResponse> getUnreadMessages(Long userId) {
         return messageRepository.findUnreadByReceiver(userId).stream()
             .map(this::toResponse).toList();
     }
 
+    /**
+     * Ham lay danh sach hoi thoai gan nhat cua user.
+     */
     public List<MessageResponse> getConversations(Long userId) {
         return messageRepository.findLatestConversations(userId).stream()
             .map(this::toResponse).toList();
     }
 
+    /**
+     * Ham danh dau mot tin nhan da doc.
+     */
     @Transactional
     public void markAsRead(Long messageId) {
         Message message = messageRepository.findById(messageId)
@@ -85,6 +102,9 @@ public class MessageService {
         messageRepository.save(message);
     }
 
+    /**
+     * Ham danh dau toan bo hoi thoai voi mot user la da doc.
+     */
     @Transactional
     public void markConversationAsRead(Long userId, Long otherId) {
         List<Message> unread = messageRepository.findConversation(userId, otherId).stream()
@@ -96,22 +116,25 @@ public class MessageService {
         messageRepository.saveAll(unread);
     }
 
+    /**
+     * Ham thu hoi tin nhan va len lich xoa media neu co.
+     */
     @Transactional
     public MessageResponse recallMessage(Long messageId, Long userId) {
         Message message = messageRepository.findById(messageId)
             .orElseThrow(() -> new IllegalArgumentException("Message not found"));
         
-        // Only the sender can recall the message
+        // Chi nguoi gui moi duoc thu hoi tin nhan.
         if (!message.getSender().getId().equals(userId)) {
             throw new IllegalArgumentException("Only the sender can recall this message");
         }
         
-        // Check if already recalled
+        // Khong cho thu hoi lai tin da thu hoi.
         if (Boolean.TRUE.equals(message.getIsRecalled())) {
             throw new IllegalArgumentException("Message is already recalled");
         }
 
-        // For group messages, verify user is still an active member
+        // Tin nhom chi duoc thu hoi neu nguoi gui van la thanh vien active.
         if (message.getGroup() != null) {
             GroupMember member = groupMemberRepository
                 .findByGroupIdAndUserId(message.getGroup().getId(), userId)
@@ -122,6 +145,7 @@ public class MessageService {
             }
         }
         
+        cloudCleanup.schedule(List.of(message.getMediaUrl() == null ? "" : message.getMediaUrl()));
         message.setIsRecalled(true);
         message.setContent("");
         message.setMediaUrl(null);
@@ -129,7 +153,9 @@ public class MessageService {
         return toResponse(saved);
     }
 
-    // Group chat methods
+    /**
+     * Ham gui tin nhan nhom, co ho tro mention tung nguoi hoac @all.
+     */
     @Transactional
     public MessageResponse sendGroupMessage(Long senderId, Long groupId, String content, 
                                             String mediaUrl, List<Long> mentionedUserIds, 
@@ -140,7 +166,7 @@ public class MessageService {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new IllegalArgumentException("Group not found"));
 
-        // Verify sender is an active member of the group
+        // Nguoi gui phai la thanh vien active cua nhom.
         GroupMember member = groupMemberRepository
             .findByGroupIdAndUserId(groupId, senderId)
             .orElseThrow(() -> new IllegalArgumentException("You are not a member of this group"));
@@ -161,7 +187,7 @@ public class MessageService {
         message.setIsRead(false);
         message.setIsRecalled(false);
         
-        // Set mentions
+        // Luu danh sach user duoc mention thanh chuoi id cach nhau bang dau phay.
         if (mentionedUserIds != null && !mentionedUserIds.isEmpty()) {
             message.setMentionedUserIds(String.join(",", mentionedUserIds.stream().map(String::valueOf).toArray(String[]::new)));
         }
@@ -171,8 +197,11 @@ public class MessageService {
         return toResponse(saved);
     }
 
+    /**
+     * Ham lay tin nhan nhom theo trang sau khi kiem tra quyen thanh vien.
+     */
     public List<MessageResponse> getGroupMessages(Long groupId, Long viewerId, int page, int size) {
-        // Verify viewer is an active member of the group
+        // Nguoi xem phai la thanh vien active cua nhom.
         GroupMember member = groupMemberRepository
             .findByGroupIdAndUserId(groupId, viewerId)
             .orElseThrow(() -> new IllegalArgumentException("Access denied"));
@@ -188,8 +217,11 @@ public class MessageService {
             .toList();
     }
 
+    /**
+     * Ham lay tin nhan nhom moi hon moc thoi gian since.
+     */
     public List<MessageResponse> getGroupMessagesSince(Long groupId, Long viewerId, LocalDateTime since) {
-        // Verify viewer is an active member of the group
+        // Nguoi xem phai la thanh vien active cua nhom.
         GroupMember member = groupMemberRepository
             .findByGroupIdAndUserId(groupId, viewerId)
             .orElseThrow(() -> new IllegalArgumentException("Access denied"));
@@ -204,6 +236,9 @@ public class MessageService {
             .toList();
     }
 
+    /**
+     * Ham chuyen Message entity sang MessageResponse de frontend hien thi.
+     */
     private MessageResponse toResponse(Message m) {
         Long receiverId = null;
         String receiverName = null;

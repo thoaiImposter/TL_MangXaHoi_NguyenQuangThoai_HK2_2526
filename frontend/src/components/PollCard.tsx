@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import type { Post, GroupPost, PollResults, PollOption } from '../types';
+import type { GroupPost, PollOption, PollResults, Post } from '../types';
 
 interface PollCardProps {
   post: Post | GroupPost;
@@ -8,209 +8,93 @@ interface PollCardProps {
 }
 
 export default function PollCard({ post, userId }: PollCardProps) {
-  const [pollResults, setPollResults] = useState<PollResults | null>(null);
-  const [selectedOptions, setSelectedOptions] = useState<number[]>([]);
-  const [voting, setVoting] = useState(false);
+  const postId = 'postId' in post && post.postId ? post.postId : post.id;
+  const [results, setResults] = useState<PollResults | null>(null);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState('');
 
-  // Get the actual post ID (GroupPost uses postId, Post uses id)
-  const getPostId = () => {
-    if ('postId' in post && post.postId) return post.postId;
-    return post.id;
+  const load = async () => {
+    try {
+      const data = await api.getPollResults(postId, userId);
+      setResults(data);
+      setSelected(data.options.filter((option) => option.votedByMe).map((option) => option.id));
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không tải được cuộc bình chọn');
+    }
   };
 
   useEffect(() => {
-    loadPollResults();
-  }, [getPostId()]);
+    load();
+  }, [postId, userId]);
 
-  const loadPollResults = async () => {
-    try {
-      const postId = getPostId();
-      const results = await api.getPollResults(postId, userId);
-      setPollResults(results);
-      // If user has voted, pre-select their options
-      if (results.hasVoted) {
-        const votedOptionIds = results.options
-          .filter((opt: PollOption) => opt.votedByMe)
-          .map((opt: PollOption) => opt.id);
-        setSelectedOptions(votedOptionIds);
-      }
-    } catch (error) {
-      console.error('Failed to load poll results:', error);
-    }
+  const ended = Boolean(results?.isEnded || (post.pollEndDate && new Date(post.pollEndDate) < new Date()));
+
+  const toggle = (optionId: number) => {
+    if (!results || results.hasVoted || ended) return;
+    setSelected((current) => results.allowMultiple
+      ? current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId]
+      : [optionId]);
   };
 
-  const handleOptionToggle = (optionId: number) => {
-    if (pollResults?.hasVoted || pollResults?.isEnded) return;
-
-    if (pollResults?.allowMultiple) {
-      setSelectedOptions(prev =>
-        prev.includes(optionId)
-          ? prev.filter(id => id !== optionId)
-          : [...prev, optionId]
-      );
-    } else {
-      setSelectedOptions([optionId]);
-    }
-  };
-
-  const handleVote = async () => {
-    if (selectedOptions.length === 0 || voting) return;
-
-    setVoting(true);
+  const vote = async () => {
+    if (!selected.length || working) return;
+    setWorking(true);
     try {
-      const postId = getPostId();
-      const results = await api.votePoll(postId, userId, selectedOptions);
-      setPollResults(results);
-      alert('Đã bình chọn thành công!');
-    } catch (error: any) {
-      alert('Không thể bình chọn: ' + (error?.message || 'Lỗi không xác định'));
+      setResults(await api.votePoll(postId, userId, selected));
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể bình chọn');
     } finally {
-      setVoting(false);
+      setWorking(false);
     }
   };
 
-  const handleRemoveVote = async () => {
+  const removeVote = async () => {
+    setWorking(true);
     try {
-      const postId = getPostId();
       await api.removePollVote(postId, userId);
-      loadPollResults();
-      setSelectedOptions([]);
-      alert('Đã hủy bình chọn!');
-    } catch (error) {
-      console.error('Failed to remove vote:', error);
+      await load();
+      setSelected([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể hủy bình chọn');
+    } finally {
+      setWorking(false);
     }
   };
 
-  const formatDate = (dateStr: string | null | undefined) => {
-    if (!dateStr) return null;
-    return new Date(dateStr).toLocaleString('vi-VN');
-  };
-
-  const isPollEnded = pollResults?.isEnded || (post.pollEndDate && new Date(post.pollEndDate) < new Date());
-
-  if (!pollResults) {
-    return <div>Đang tải bình chọn...</div>;
-  }
+  if (error && !results) return <div className="poll-card poll-error">{error}</div>;
+  if (!results) return <div className="poll-card poll-loading">Đang tải cuộc bình chọn...</div>;
 
   return (
-    <div data-poll-card style={{ padding: '16px', border: '1px solid #ddd', borderRadius: '8px', background: '#f8f9fa' }}>
-      <div style={{ marginBottom: '16px', fontWeight: '600', fontSize: '16px' }}>
-        📊 Cuộc bình chọn
-      </div>
-
-      {/* Poll options */}
-      <div style={{ marginBottom: '16px' }}>
-        {pollResults.options.map((option: PollOption) => {
-          const isSelected = pollResults.hasVoted
-            ? option.votedByMe
-            : selectedOptions.includes(option.id);
+    <section className="poll-card" data-poll-card>
+      <header className="poll-card-head">
+        <div><span className="poll-card-icon">▥</span><strong>Cuộc bình chọn</strong></div>
+        <span className={`poll-status ${ended ? 'ended' : ''}`}>{ended ? 'Đã kết thúc' : 'Đang diễn ra'}</span>
+      </header>
+      <h3 className="poll-question">{post.title}</h3>
+      <div className="poll-options">
+        {results.options.map((option: PollOption) => {
+          const active = results.hasVoted ? Boolean(option.votedByMe) : selected.includes(option.id);
           return (
-            <div
-              key={option.id}
-              onClick={() => handleOptionToggle(option.id)}
-              style={{
-                padding: '12px',
-                marginBottom: '8px',
-                border: `2px solid ${isSelected ? '#1876f2' : '#ddd'}`,
-                borderRadius: '8px',
-                cursor: pollResults.hasVoted || isPollEnded ? 'default' : 'pointer',
-                background: isSelected ? '#e7f3ff' : '#fff',
-                position: 'relative',
-                overflow: 'hidden',
-                transition: 'all 0.2s',
-              }}
-            >
-              {/* Progress bar background for voted polls */}
-              {pollResults.hasVoted && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    bottom: 0,
-                    width: `${option.percentage || 0}%`,
-                    background: option.votedByMe ? 'rgba(24, 118, 242, 0.15)' : 'rgba(0, 0, 0, 0.05)',
-                    transition: 'width 0.3s',
-                  }}
-                />
-              )}
-
-              <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {/* Custom radio/checkbox */}
-                <div
-                  style={{
-                    width: '20px',
-                    height: '20px',
-                    borderRadius: pollResults.allowMultiple ? '4px' : '50%',
-                    border: `2px solid ${isSelected ? '#1876f2' : '#ddd'}`,
-                    background: isSelected ? '#1876f2' : 'transparent',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  {isSelected && (
-                    <span style={{ color: '#fff', fontSize: '12px' }}>✓</span>
-                  )}
-                </div>
-
-                <span style={{ flex: 1 }}>{option.optionText}</span>
-
-                {/* Show results if voted */}
-                {pollResults.hasVoted && (
-                  <>
-                    <span style={{ fontWeight: '600', color: '#65676b' }}>
-                      {option.percentage?.toFixed(1) || 0}%
-                    </span>
-                    <span style={{ fontSize: '12px', color: '#65676b' }}>
-                      ({option.voteCount || 0} lượt)
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
+            <button className={`poll-option ${active ? 'selected' : ''}`} disabled={results.hasVoted || ended} key={option.id} type="button" onClick={() => toggle(option.id)}>
+              {results.hasVoted && <span className="poll-progress" style={{ width: `${option.percentage || 0}%` }} />}
+              <span className={`poll-choice ${results.allowMultiple ? 'multiple' : ''}`}>{active ? '✓' : ''}</span>
+              <span className="poll-option-label">{option.optionText}</span>
+              {results.hasVoted && <span className="poll-result"><strong>{option.percentage?.toFixed(0) || 0}%</strong><small>{option.voteCount || 0} lượt</small></span>}
+            </button>
           );
         })}
       </div>
-
-      {/* Poll info */}
-      <div style={{ fontSize: '12px', color: '#65676b', marginBottom: '12px' }}>
-        <div>
-          {pollResults.totalVotes} lượt bình chọn
-          {post.pollAllowMultiple && ' (có thể chọn nhiều)'}
+      <footer className="poll-card-foot">
+        <div><strong>{results.totalVotes}</strong> lượt bình chọn{results.allowMultiple ? ' · Chọn nhiều phương án' : ''}{post.pollEndDate ? ` · Kết thúc ${new Date(post.pollEndDate).toLocaleString('vi-VN')}` : ''}</div>
+        <div className="poll-actions">
+          {!results.hasVoted && !ended && <button className="btn btn-primary btn-sm" disabled={!selected.length || working} type="button" onClick={vote}>{working ? 'Đang gửi...' : 'Bình chọn'}</button>}
+          {results.hasVoted && !ended && <button className="btn btn-secondary btn-sm" disabled={working} type="button" onClick={removeVote}>Đổi lựa chọn</button>}
         </div>
-        {post.pollEndDate && (
-          <div>
-            Kết thúc: {formatDate(post.pollEndDate)}
-            {isPollEnded && <span style={{ color: '#dc3545' }}> (Đã kết thúc)</span>}
-          </div>
-        )}
-      </div>
-
-      {/* Action buttons */}
-      <div style={{ display: 'flex', gap: '8px' }}>
-        {!pollResults.hasVoted && !isPollEnded && selectedOptions.length > 0 && (
-          <button
-            className="btn btn-primary"
-            onClick={handleVote}
-            disabled={voting}
-            style={{ padding: '8px 20px' }}
-          >
-            {voting ? 'Đang bình chọn...' : 'Bình chọn'}
-          </button>
-        )}
-
-        {pollResults.hasVoted && !isPollEnded && (
-          <button
-            className="btn btn-secondary"
-            onClick={handleRemoveVote}
-            style={{ padding: '8px 20px' }}
-          >
-            Hủy bình chọn
-          </button>
-        )}
-      </div>
-    </div>
+      </footer>
+      {error && <div className="alert alert-error">{error}</div>}
+    </section>
   );
 }

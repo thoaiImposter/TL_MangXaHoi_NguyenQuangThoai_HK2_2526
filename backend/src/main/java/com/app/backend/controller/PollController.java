@@ -1,5 +1,6 @@
 package com.app.backend.controller;
 
+import com.app.backend.service.AuthenticatedUserService;
 import com.app.backend.service.PollService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -17,16 +18,16 @@ public class PollController {
 
     @Autowired
     private PollService pollService;
+    @Autowired
+    private AuthenticatedUserService authenticatedUserService;
 
     /**
-     * Create a new poll post
-     * POST /api/polls
-     * Body: { authorId, title, content, visibility, options, endDate, allowMultiple }
+     * Ham tao bai viet dang binh chon.
      */
     @PostMapping
     public ResponseEntity<?> createPoll(@RequestBody Map<String, Object> request) {
         try {
-            Long authorId = Long.parseLong(request.get("authorId").toString());
+            Long authorId = authenticatedUserService.getCurrentUserId();
             String title = (String) request.get("title");
             String content = (String) request.get("content");
             String visibility = request.get("visibility") != null ? (String) request.get("visibility") : "public";
@@ -53,14 +54,12 @@ public class PollController {
     }
 
     /**
-     * Vote in a poll
-     * POST /api/polls/{postId}/vote
-     * Body: { userId, optionIds }
+     * Ham ghi nhan lua chon cua user trong poll.
      */
     @PostMapping("/{postId}/vote")
     public ResponseEntity<?> vote(@PathVariable Long postId, @RequestBody Map<String, Object> request) {
         try {
-            Long userId = Long.parseLong(request.get("userId").toString());
+            Long userId = authenticatedUserService.getCurrentUserId();
             @SuppressWarnings("unchecked")
             List<Number> rawOptionIds = (List<Number>) request.get("optionIds");
             List<Long> optionIds = rawOptionIds.stream().map(Number::longValue).toList();
@@ -75,13 +74,12 @@ public class PollController {
     }
 
     /**
-     * Get poll results
-     * GET /api/polls/{postId}/results?userId=xxx
+     * Ham lay ket qua hien tai cua poll.
      */
     @GetMapping("/{postId}/results")
-    public ResponseEntity<?> getPollResults(@PathVariable Long postId, @RequestParam Long userId) {
+    public ResponseEntity<?> getPollResults(@PathVariable Long postId, @RequestParam(required = false) Long userId) {
         try {
-            Map<String, Object> result = pollService.getPollResults(postId, userId);
+            Map<String, Object> result = pollService.getPollResults(postId, authenticatedUserService.getCurrentUserId());
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -91,14 +89,13 @@ public class PollController {
     }
 
     /**
-     * Remove vote from a poll
-     * DELETE /api/polls/{postId}/vote?userId=xxx
+     * Ham huy vote cua user trong poll.
      */
     @DeleteMapping("/{postId}/vote")
-    public ResponseEntity<?> removeVote(@PathVariable Long postId, @RequestParam Long userId) {
+    public ResponseEntity<?> removeVote(@PathVariable Long postId, @RequestParam(required = false) Long userId) {
         try {
-            pollService.removeVote(postId, userId);
-            return ResponseEntity.ok(Map.of("message", "Vote removed successfully"));
+            pollService.removeVote(postId, authenticatedUserService.getCurrentUserId());
+            return ResponseEntity.noContent().build();
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("error", "Failed to remove vote"));
         }

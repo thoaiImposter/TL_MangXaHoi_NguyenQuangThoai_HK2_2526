@@ -16,6 +16,7 @@ export default function GroupsPage() {
   const userId = user?.id || 0;
   const userRole: UserRole = user?.role || 'student';
   const isFacultyUnion = userRole === 'faculty_union';
+  const canBroadcastToClasses = userRole === 'faculty_union' || userRole === 'advisor';
   const [activeTab, setActiveTab] = useState<'discover' | 'my-groups'>('discover');
   const [groups, setGroups] = useState<Group[]>([]);
   const [memberGroupIds, setMemberGroupIds] = useState<Set<number>>(new Set());
@@ -103,28 +104,16 @@ export default function GroupsPage() {
 
     setCreating(true);
     try {
-      // Step 1: Create the group (existing flow)
+      // UC31: Tao nhom lop truoc, sau do moi xu ly file Excel neu co.
       const group = await api.createGroup(userId, newGroup);
 
-      // Step 2: If Excel file was uploaded (Đoàn khoa), create a group post with the file
+      // File Excel dong vai tro danh sach lop; backend se doc cot MSSV de them/moi sinh vien.
       if (excelFile && isFacultyUnion) {
         try {
-          // Upload the Excel file to backend
-          const uploadResult = await api.uploadFile(excelFile, 'file', 'documents');
-          // Create a group post with the uploaded Excel as attachment
-          await api.createGroupPost(group.id, userId, {
-            content: `📋 Danh sách sinh viên lớp ${group.name} - Xem file Excel đính kèm để biết chi tiết.`,
-            media: [{
-              url: uploadResult.mediaUrl,
-              type: 'file',
-              name: uploadResult.mediaName,
-              size: uploadResult.mediaSize,
-            }],
-          });
+          await api.bulkInviteStudents(group.id, userId, excelFile);
         } catch (postError) {
-          console.error('Failed to create Excel post:', postError);
-          // Group was created successfully, post failure is non-critical
-          alert('Nhóm đã tạo nhưng không thể đăng bài viết Excel. Vui lòng thử đăng lại sau.');
+          console.error('Failed to process class roster:', postError);
+          alert('Nhóm đã tạo nhưng chưa xử lý được danh sách sinh viên. Bạn có thể import lại trong trang nhóm.');
         }
       }
 
@@ -188,7 +177,7 @@ export default function GroupsPage() {
       </div>
 
       {/* Broadcast button - only for Đoàn khoa in "my groups" tab */}
-      {activeTab === 'my-groups' && isFacultyUnion && (
+      {activeTab === 'my-groups' && canBroadcastToClasses && (
         <button
           className="btn btn-primary"
           onClick={() => { setBroadcastSuccess(''); setShowBroadcastModal(true); }}
@@ -304,7 +293,7 @@ export default function GroupsPage() {
                     <span>Import Excel danh sách sinh viên</span>
                   </label>
                   <p style={{ fontSize: '12px', color: 'var(--gray-500)', margin: '0 0 8px 0' }}>
-                    File Excel sẽ được đính kèm vào bài viết đầu tiên của nhóm
+                    Hệ thống sẽ thêm sinh viên đã đăng ký và gửi email mời cho sinh viên chưa có tài khoản
                   </p>
                   {excelFile ? (
                     <div style={{

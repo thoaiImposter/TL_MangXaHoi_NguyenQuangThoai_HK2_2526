@@ -13,6 +13,8 @@ import GroupsPage from './pages/GroupsPage';
 import GroupDetailPage from './pages/GroupDetailPage';
 import PostDetailPage from './pages/PostDetailPage';
 import GroupPostDetailPage from './pages/GroupPostDetailPage';
+import SearchPage from './pages/SearchPage';
+import AdminPage from './pages/AdminPage';
 import type { SessionUser } from './types';
 
 type MiniChatItem = {
@@ -130,6 +132,42 @@ function App() {
           user ? (
             <AppLayout onLogout={handleLogout} user={user} miniChats={miniChats} onOpenMiniChat={openMiniChat} onOpenMiniGroupChat={openMiniGroupChat} onCloseMiniChat={closeMiniChat} onToggleMiniChat={toggleMiniChat} theme={theme} onToggleTheme={toggleTheme}>
               <HomePage user={user} />
+            </AppLayout>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/search"
+        element={
+          user ? (
+            <AppLayout onLogout={handleLogout} user={user} miniChats={miniChats} onOpenMiniChat={openMiniChat} onOpenMiniGroupChat={openMiniGroupChat} onCloseMiniChat={closeMiniChat} onToggleMiniChat={toggleMiniChat} theme={theme} onToggleTheme={toggleTheme}>
+              <SearchPage user={user} />
+            </AppLayout>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          user ? (
+            <AppLayout onLogout={handleLogout} user={user} miniChats={miniChats} onOpenMiniChat={openMiniChat} onOpenMiniGroupChat={openMiniGroupChat} onCloseMiniChat={closeMiniChat} onToggleMiniChat={toggleMiniChat} theme={theme} onToggleTheme={toggleTheme}>
+              <AdminPage user={user} />
+            </AppLayout>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/admin/reports"
+        element={
+          user ? (
+            <AppLayout onLogout={handleLogout} user={user} miniChats={miniChats} onOpenMiniChat={openMiniChat} onOpenMiniGroupChat={openMiniGroupChat} onCloseMiniChat={closeMiniChat} onToggleMiniChat={toggleMiniChat} theme={theme} onToggleTheme={toggleTheme}>
+              <AdminPage user={user} />
             </AppLayout>
           ) : (
             <Navigate to="/login" replace />

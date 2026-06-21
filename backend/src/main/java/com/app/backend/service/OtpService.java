@@ -12,11 +12,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.Random;
 
 @Service
 public class OtpService {
@@ -38,6 +38,7 @@ public class OtpService {
 
     private static final String OTP_CHARACTERS = "0123456789";
     private static final int OTP_LENGTH = 6;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     public OtpService(OtpTokenRepository otpTokenRepository, JavaMailSender mailSender) {
         this.otpTokenRepository = otpTokenRepository;
@@ -45,48 +46,45 @@ public class OtpService {
     }
 
     /**
-     * Generate a random 6-digit OTP code
+     * Ham sinh ma OTP 6 chu so ngau nhien.
      */
     public String generateOtpCode() {
-        Random random = new Random();
         StringBuilder otp = new StringBuilder(OTP_LENGTH);
         for (int i = 0; i < OTP_LENGTH; i++) {
-            otp.append(OTP_CHARACTERS.charAt(random.nextInt(OTP_CHARACTERS.length())));
+            otp.append(OTP_CHARACTERS.charAt(SECURE_RANDOM.nextInt(OTP_CHARACTERS.length())));
         }
         return otp.toString();
     }
 
     /**
-     * Create and save OTP token for registration
+     * Ham tao va luu OTP moi cho email dang ky.
      */
     @Transactional
     public OtpToken createOtpToken(String email) {
-        // Delete any existing OTP for this email
-        otpTokenRepository.deleteByEmail(email);
-
         String otpCode = generateOtpCode();
-        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(expirationMinutes);
-
-        OtpToken otpToken = new OtpToken();
+        LocalDateTime now = LocalDateTime.now();
+        OtpToken otpToken = otpTokenRepository.findByEmail(email).orElseGet(OtpToken::new);
         otpToken.setEmail(email);
         otpToken.setOtpCode(otpCode);
-        otpToken.setExpiresAt(expiresAt);
+        otpToken.setExpiresAt(now.plusMinutes(expirationMinutes));
         otpToken.setUsed(false);
         otpToken.setAttemptCount(0);
+        otpToken.setCreatedAt(now);
 
-        return otpTokenRepository.save(otpToken);
+        return otpTokenRepository.saveAndFlush(otpToken);
     }
 
     /**
-     * Generate and send OTP via email for registration
+     * Ham tao OTP va gui email xac thuc dang ky.
      */
+    @Transactional
     public OtpToken sendRegistrationOtp(String email) {
         OtpToken otpToken = createOtpToken(email);
         
-        // Send email with OTP
+        // Gui OTP qua email.
         sendOtpEmail(email, otpToken.getOtpCode(), expirationMinutes, maxAttempts);
         
-        // Also log to console for debugging
+        // In OTP ra console de tien demo/debug local.
         System.out.println("\n");
         System.out.println("════════════════════════════════════════════════════════");
         System.out.println("  🎓 NLU Social - Mã Xác Thực Đăng Ký");
@@ -102,7 +100,7 @@ public class OtpService {
     }
 
     /**
-     * Send OTP via email
+     * Ham gui noi dung email OTP bang SMTP.
      */
     private void sendOtpEmail(String toEmail, String otpCode, int expirationMinutes, int maxAttempts) {
         try {
@@ -126,7 +124,7 @@ public class OtpService {
     }
 
     /**
-     * Build HTML email content
+     * Ham dung HTML email chua ma OTP.
      */
     private String buildEmailHtml(String otpCode, int expirationMinutes, int maxAttempts) {
         return "<!DOCTYPE html>\n" +
@@ -272,15 +270,14 @@ public class OtpService {
     }
 
     /**
-     * Verify OTP code for registration
-     * @return VerificationResult containing success status and message
+     * Ham kiem tra OTP, dem so lan sai va danh dau OTP da su dung.
      */
     @Transactional
     public VerificationResult verifyOtp(String email, String otpCode) {
         Optional<OtpToken> otpTokenOpt = otpTokenRepository.findByEmailAndOtpCode(email, otpCode);
         
         if (otpTokenOpt.isEmpty()) {
-            // Check if there's any OTP for this email to provide better error message
+            // Neu sai ma, van tang so lan thu cua OTP gan nhat theo email.
             Optional<OtpToken> anyOtp = otpTokenRepository.findByEmail(email);
             if (anyOtp.isPresent()) {
                 OtpToken token = anyOtp.get();
@@ -297,13 +294,13 @@ public class OtpService {
         
         OtpToken otpToken = otpTokenOpt.get();
         
-        // Check if locked due to too many attempts
+        // OTP bi khoa neu sai qua so lan cho phep.
         if (otpToken.isLocked()) {
             return new VerificationResult(false, "Mã OTP đã bị khóa do quá nhiều lần thử sai. Vui lòng yêu cầu mã mới.");
         }
         
         if (!otpToken.isValid()) {
-            // Mark as used even if expired to prevent reuse
+            // OTP het han thi danh dau used de khong tai su dung.
             otpToken.setUsed(true);
             otpTokenRepository.save(otpToken);
             
@@ -313,14 +310,14 @@ public class OtpService {
             return new VerificationResult(false, "Mã OTP không hợp lệ hoặc đã được sử dụng.");
         }
         
-        // Success - mark as used
+        // Xac minh thanh cong thi danh dau OTP da dung.
         otpToken.setUsed(true);
         otpTokenRepository.save(otpToken);
         return new VerificationResult(true, "Xác minh OTP thành công.");
     }
 
     /**
-     * Check if can resend OTP (cooldown check)
+     * Ham kiem tra da het thoi gian cooldown de gui lai OTP chua.
      */
     public boolean canResendOtp(String email) {
         Optional<OtpToken> lastOtp = otpTokenRepository.findByEmail(email);
@@ -334,7 +331,7 @@ public class OtpService {
     }
 
     /**
-     * Get remaining cooldown time in seconds
+     * Ham tinh so giay con phai cho truoc khi gui lai OTP.
      */
     public long getResendCooldownRemaining(String email) {
         Optional<OtpToken> lastOtp = otpTokenRepository.findByEmail(email);
@@ -353,16 +350,20 @@ public class OtpService {
     }
 
     /**
-     * Resend OTP for the same email
+     * Ham gui lai OTP cho cung email neu het cooldown.
      */
     @Transactional
     public OtpToken resendOtp(String email) {
-        // Delete existing OTP and create new one
+        if (!canResendOtp(email)) {
+            throw new IllegalArgumentException(
+                "Vui lòng chờ " + getResendCooldownRemaining(email) + " giây trước khi yêu cầu mã OTP mới."
+            );
+        }
         return sendRegistrationOtp(email);
     }
 
     /**
-     * Clean up expired OTP tokens (runs every hour)
+     * Ham don OTP het han, chay moi gio.
      */
     @Scheduled(cron = "0 0 * * * *")
     @Transactional
@@ -374,7 +375,7 @@ public class OtpService {
     }
 
     /**
-     * Result class for OTP verification
+     * Lop ket qua tra ve khi verify OTP.
      */
     public static class VerificationResult {
         private final boolean success;

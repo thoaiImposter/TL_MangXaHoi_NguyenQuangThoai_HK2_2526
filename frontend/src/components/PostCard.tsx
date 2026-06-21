@@ -8,6 +8,7 @@ import PostMediaSection from './PostMediaSection';
 import CommentMediaSection from './CommentMediaSection';
 import CommentDraftMedia from './CommentDraftMedia';
 import LinkifiedText from './LinkifiedText';
+import ReportButton from './ReportButton';
 
 type Draft = { content: string; media: string[] };
 type CommentLikeState = Record<number, { likeCount: number; likedByMe: boolean }>;
@@ -292,6 +293,7 @@ function PostCard({
                     </button>
                   </>
                 )}
+                {comment.authorId !== user.id && <ReportButton reporterId={user.id} targetType="comment" targetId={comment.id} />}
               </div>
             </div>
 
@@ -389,9 +391,14 @@ function PostCard({
             </button>
           </div>
         )}
+        {post.authorId !== user.id && (
+          <div className="feed-actions post-card-tools">
+            <ReportButton reporterId={user.id} targetType="post" targetId={post.id} />
+          </div>
+        )}
       </div>
 
-      <p className={`post-body ${expandedPost ? 'post-body-open' : ''}`}>{post.content}</p>
+      <LinkifiedText className={`post-body ${expandedPost ? 'post-body-open' : ''}`} text={post.content} />
       {post.content.length > 180 && (
         <button className="chip" type="button" onClick={() => onToggleExpandedPost(post.id)}>
           {expandedPost ? 'Thu gọn' : 'Xem thêm'}

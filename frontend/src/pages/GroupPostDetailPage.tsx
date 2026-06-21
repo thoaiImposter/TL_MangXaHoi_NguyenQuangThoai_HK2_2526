@@ -8,6 +8,7 @@ import PostMediaSection from '../components/PostMediaSection';
 import CommentMediaSection from '../components/CommentMediaSection';
 import CommentDraftMedia from '../components/CommentDraftMedia';
 import LinkifiedText from '../components/LinkifiedText';
+import ReportButton from '../components/ReportButton';
 
 type Draft = { content: string; media: string[] };
 type CommentLikeState = Record<number, { likeCount: number; likedByMe: boolean }>;
@@ -292,6 +293,7 @@ export default function GroupPostDetailPage() {
                 >
                   Trả lời
                 </button>
+                {comment.authorId !== userId && <ReportButton reporterId={userId} targetType="comment" targetId={comment.id} />}
               </div>
             </div>
 
@@ -387,9 +389,11 @@ export default function GroupPostDetailPage() {
           </div>
         </div>
 
-        <p className="post-body" style={{ marginTop: '12px', fontSize: '16px', lineHeight: '1.6' }}>
-          {post.content}
-        </p>
+        <LinkifiedText
+          className="post-body"
+          text={post.content}
+          style={{ marginTop: '12px', fontSize: '16px', lineHeight: '1.6' }}
+        />
 
         {post.isPoll && <PollCard post={post} userId={userId} />}
 
@@ -402,6 +406,7 @@ export default function GroupPostDetailPage() {
           <button className="chip" type="button" onClick={() => setExpandedComments(!expandedComments)}>
             {expandedComments ? 'Thu gọn' : `Bình luận (${post.commentCount})`}
           </button>
+          {post.authorId !== userId && <ReportButton reporterId={userId} targetType="post" targetId={post.postId} />}
         </div>
       </article>
 

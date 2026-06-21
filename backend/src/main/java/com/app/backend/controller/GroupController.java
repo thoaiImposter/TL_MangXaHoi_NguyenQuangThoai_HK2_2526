@@ -5,6 +5,7 @@ import com.app.backend.entity.GroupMember;
 import com.app.backend.entity.User;
 import com.app.backend.repository.UserRepository;
 import com.app.backend.service.GroupService;
+import com.app.backend.service.AuthenticatedUserService;
 import jakarta.mail.internet.MimeMessage;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -29,21 +30,24 @@ public class GroupController {
     private final GroupService groupService;
     private final UserRepository userRepository;
     private final JavaMailSender mailSender;
+    private final AuthenticatedUserService authenticatedUserService;
 
     @Value("${spring.mail.username:noreply@nlusocial.edu.vn}")
     private String fromEmail;
 
-    public GroupController(GroupService groupService, UserRepository userRepository, JavaMailSender mailSender) {
+    public GroupController(GroupService groupService, UserRepository userRepository, JavaMailSender mailSender,
+                           AuthenticatedUserService authenticatedUserService) {
         this.groupService = groupService;
         this.userRepository = userRepository;
         this.mailSender = mailSender;
+        this.authenticatedUserService = authenticatedUserService;
     }
 
     // ==================== Group CRUD ====================
 
     @PostMapping
     public ResponseEntity<GroupResponse> createGroup(@RequestBody Map<String, Object> body) {
-        Long userId = Long.parseLong(body.get("userId").toString());
+        Long userId = authenticatedUserService.getCurrentUserId();
         GroupRequest request = new GroupRequest(
             (String) body.get("name"),
             (String) body.get("description"),
@@ -65,7 +69,7 @@ public class GroupController {
     public ResponseEntity<GroupResponse> updateGroup(
             @PathVariable Long groupId,
             @RequestBody Map<String, Object> body) {
-        Long userId = Long.parseLong(body.get("userId").toString());
+        Long userId = authenticatedUserService.getCurrentUserId();
         GroupRequest request = new GroupRequest(
             (String) body.get("name"),
             (String) body.get("description"),
@@ -80,8 +84,8 @@ public class GroupController {
     @DeleteMapping("/{groupId}")
     public ResponseEntity<Void> deleteGroup(
             @PathVariable Long groupId,
-            @RequestParam Long userId) {
-        groupService.deleteGroup(groupId, userId);
+            @RequestParam(required = false) Long userId) {
+        groupService.deleteGroup(groupId, authenticatedUserService.getCurrentUserId());
         return ResponseEntity.noContent().build();
     }
 
@@ -96,10 +100,10 @@ public class GroupController {
 
     @GetMapping("/my-groups")
     public ResponseEntity<List<GroupResponse>> getUserGroups(
-            @RequestParam Long userId,
+            @RequestParam(required = false) Long userId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ResponseEntity.ok(groupService.getUserGroups(userId, page, size));
+        return ResponseEntity.ok(groupService.getUserGroups(authenticatedUserService.getCurrentUserId(), page, size));
     }
 
     @GetMapping("/search")
@@ -116,7 +120,7 @@ public class GroupController {
     public ResponseEntity<?> joinGroup(
             @PathVariable Long groupId,
             @RequestBody Map<String, Object> body) {
-        Long userId = Long.parseLong(body.get("userId").toString());
+        Long userId = authenticatedUserService.getCurrentUserId();
         GroupMemberResponse response = groupService.joinGroup(groupId, userId);
         if (response == null) {
             return ResponseEntity.accepted().body(Map.of("message", "Yêu cầu tham gia đã được gửi. Chờ phê duyệt."));
@@ -127,8 +131,8 @@ public class GroupController {
     @PostMapping("/{groupId}/leave")
     public ResponseEntity<Void> leaveGroup(
             @PathVariable Long groupId,
-            @RequestParam Long userId) {
-        groupService.leaveGroup(groupId, userId);
+            @RequestParam(required = false) Long userId) {
+        groupService.leaveGroup(groupId, authenticatedUserService.getCurrentUserId());
         return ResponseEntity.noContent().build();
     }
 
@@ -143,39 +147,39 @@ public class GroupController {
     public ResponseEntity<Void> removeMember(
             @PathVariable Long groupId,
             @PathVariable Long memberId,
-            @RequestParam Long adminId) {
-        groupService.removeMember(groupId, memberId, adminId);
+            @RequestParam(required = false) Long adminId) {
+        groupService.removeMember(groupId, memberId, authenticatedUserService.getCurrentUserId());
         return ResponseEntity.noContent().build();
     }
 
     // ==================== Join Requests ====================
 
     @GetMapping("/join-requests/pending")
-    public ResponseEntity<List<GroupJoinRequestResponse>> getMyPendingJoinRequests(@RequestParam Long userId) {
-        return ResponseEntity.ok(groupService.getPendingJoinRequestsByUser(userId));
+    public ResponseEntity<List<GroupJoinRequestResponse>> getMyPendingJoinRequests(@RequestParam(required = false) Long userId) {
+        return ResponseEntity.ok(groupService.getPendingJoinRequestsByUser(authenticatedUserService.getCurrentUserId()));
     }
 
     @GetMapping("/{groupId}/join-requests")
     public ResponseEntity<List<GroupJoinRequestResponse>> getPendingJoinRequests(
             @PathVariable Long groupId,
-            @RequestParam Long adminId) {
-        return ResponseEntity.ok(groupService.getPendingJoinRequests(groupId, adminId));
+            @RequestParam(required = false) Long adminId) {
+        return ResponseEntity.ok(groupService.getPendingJoinRequests(groupId, authenticatedUserService.getCurrentUserId()));
     }
 
     @PutMapping("/{groupId}/join-requests/{requestId}/approve")
     public ResponseEntity<GroupMemberResponse> approveJoinRequest(
             @PathVariable Long groupId,
             @PathVariable Long requestId,
-            @RequestParam Long adminId) {
-        return ResponseEntity.ok(groupService.approveJoinRequest(groupId, requestId, adminId));
+            @RequestParam(required = false) Long adminId) {
+        return ResponseEntity.ok(groupService.approveJoinRequest(groupId, requestId, authenticatedUserService.getCurrentUserId()));
     }
 
     @DeleteMapping("/{groupId}/join-requests/{requestId}")
     public ResponseEntity<Void> rejectJoinRequest(
             @PathVariable Long groupId,
             @PathVariable Long requestId,
-            @RequestParam Long adminId) {
-        groupService.rejectJoinRequest(groupId, requestId, adminId);
+            @RequestParam(required = false) Long adminId) {
+        groupService.rejectJoinRequest(groupId, requestId, authenticatedUserService.getCurrentUserId());
         return ResponseEntity.noContent().build();
     }
 
@@ -185,16 +189,16 @@ public class GroupController {
     public ResponseEntity<GroupMemberResponse> grantAdminRole(
             @PathVariable Long groupId,
             @PathVariable Long targetUserId,
-            @RequestParam Long adminId) {
-        return ResponseEntity.ok(groupService.grantAdminRole(groupId, targetUserId, adminId));
+            @RequestParam(required = false) Long adminId) {
+        return ResponseEntity.ok(groupService.grantAdminRole(groupId, targetUserId, authenticatedUserService.getCurrentUserId()));
     }
 
     @PutMapping("/{groupId}/members/{targetUserId}/revoke-admin")
     public ResponseEntity<GroupMemberResponse> revokeAdminRole(
             @PathVariable Long groupId,
             @PathVariable Long targetUserId,
-            @RequestParam Long adminId) {
-        return ResponseEntity.ok(groupService.revokeAdminRole(groupId, targetUserId, adminId));
+            @RequestParam(required = false) Long adminId) {
+        return ResponseEntity.ok(groupService.revokeAdminRole(groupId, targetUserId, authenticatedUserService.getCurrentUserId()));
     }
 
     // ==================== Ban Management ====================
@@ -203,7 +207,7 @@ public class GroupController {
     public ResponseEntity<Void> banUser(
             @PathVariable Long groupId,
             @RequestBody Map<String, Object> body) {
-        Long adminId = Long.parseLong(body.get("adminId").toString());
+        Long adminId = authenticatedUserService.getCurrentUserId();
         Long targetUserId = Long.parseLong(body.get("targetUserId").toString());
         String reason = (String) body.get("reason");
         groupService.banUser(groupId, targetUserId, adminId, reason);
@@ -214,8 +218,8 @@ public class GroupController {
     public ResponseEntity<Void> unbanUser(
             @PathVariable Long groupId,
             @PathVariable Long targetUserId,
-            @RequestParam Long adminId) {
-        groupService.unbanUser(groupId, targetUserId, adminId);
+            @RequestParam(required = false) Long adminId) {
+        groupService.unbanUser(groupId, targetUserId, authenticatedUserService.getCurrentUserId());
         return ResponseEntity.noContent().build();
     }
 
@@ -225,27 +229,40 @@ public class GroupController {
     public ResponseEntity<GroupPostResponse> createGroupPost(
             @PathVariable Long groupId,
             @RequestBody Map<String, Object> body) {
-        Long userId = Long.parseLong(body.get("userId").toString());
+        Long userId = authenticatedUserService.getCurrentUserId();
         PostRequest request = new PostRequest();
         request.setContent((String) body.get("content"));
         @SuppressWarnings("unchecked")
         List<java.util.Map<String, Object>> mediaList = (List<java.util.Map<String, Object>>) body.get("media");
         request.setMedia(mediaList);
-        return ResponseEntity.ok(groupService.createGroupPost(groupId, userId, request));
+        return ResponseEntity.status(201).body(groupService.createGroupPost(groupId, userId, request));
+    }
+
+    @PostMapping("/{groupId}/announcements")
+    public ResponseEntity<GroupPostResponse> createGroupAnnouncement(
+            @PathVariable Long groupId,
+            @RequestBody Map<String, Object> body) {
+        Long userId = authenticatedUserService.getCurrentUserId();
+        PostRequest request = new PostRequest();
+        request.setContent((String) body.get("content"));
+        @SuppressWarnings("unchecked")
+        List<java.util.Map<String, Object>> mediaList = (List<java.util.Map<String, Object>>) body.get("media");
+        request.setMedia(mediaList);
+        return ResponseEntity.status(201).body(groupService.createGroupAnnouncement(groupId, userId, request));
     }
 
     @PostMapping("/{groupId}/posts/poll")
     public ResponseEntity<GroupPostResponse> createGroupPoll(
             @PathVariable Long groupId,
             @RequestBody Map<String, Object> body) {
-        Long userId = Long.parseLong(body.get("userId").toString());
+        Long userId = authenticatedUserService.getCurrentUserId();
         String title = (String) body.get("title");
         String content = (String) body.get("content");
         @SuppressWarnings("unchecked")
         List<String> options = (List<String>) body.get("options");
         String endDate = body.get("endDate") != null ? (String) body.get("endDate") : null;
         boolean allowMultiple = body.get("allowMultiple") != null && Boolean.parseBoolean(body.get("allowMultiple").toString());
-        return ResponseEntity.ok(groupService.createGroupPoll(groupId, userId, title, content, options, endDate, allowMultiple));
+        return ResponseEntity.status(201).body(groupService.createGroupPoll(groupId, userId, title, content, options, endDate, allowMultiple));
     }
 
     @GetMapping("/{groupId}/posts")
@@ -262,16 +279,16 @@ public class GroupController {
     public ResponseEntity<GroupPostResponse> approveGroupPost(
             @PathVariable Long groupId,
             @PathVariable Long postId,
-            @RequestParam Long adminId) {
-        return ResponseEntity.ok(groupService.approveGroupPost(groupId, postId, adminId));
+            @RequestParam(required = false) Long adminId) {
+        return ResponseEntity.ok(groupService.approveGroupPost(groupId, postId, authenticatedUserService.getCurrentUserId()));
     }
 
     @DeleteMapping("/{groupId}/posts/{postId}/reject")
     public ResponseEntity<Void> rejectGroupPost(
             @PathVariable Long groupId,
             @PathVariable Long postId,
-            @RequestParam Long adminId) {
-        groupService.rejectGroupPost(groupId, postId, adminId);
+            @RequestParam(required = false) Long adminId) {
+        groupService.rejectGroupPost(groupId, postId, authenticatedUserService.getCurrentUserId());
         return ResponseEntity.noContent().build();
     }
 
@@ -279,8 +296,8 @@ public class GroupController {
     public ResponseEntity<Void> deleteGroupPost(
             @PathVariable Long groupId,
             @PathVariable Long postId,
-            @RequestParam Long userId) {
-        groupService.deleteGroupPost(groupId, postId, userId);
+            @RequestParam(required = false) Long userId) {
+        groupService.deleteGroupPost(groupId, postId, authenticatedUserService.getCurrentUserId());
         return ResponseEntity.noContent().build();
     }
 
@@ -289,66 +306,66 @@ public class GroupController {
     @PostMapping("/{groupId}/posts/{postId}/likes")
     public ResponseEntity<PostLikeResponse> toggleLike(
             @PathVariable Long postId,
-            @RequestParam Long userId) {
-        return ResponseEntity.ok(groupService.toggleLikeOnGroupPost(postId, userId));
+            @RequestParam(required = false) Long userId) {
+        return ResponseEntity.ok(groupService.toggleLikeOnGroupPost(postId, authenticatedUserService.getCurrentUserId()));
     }
 
     @PostMapping("/{groupId}/posts/{postId}/comments")
     public ResponseEntity<PostCommentResponse> addComment(
             @PathVariable Long postId,
             @RequestBody Map<String, Object> body) {
-        Long userId = Long.parseLong(body.get("userId").toString());
+        Long userId = authenticatedUserService.getCurrentUserId();
         PostCommentRequest request = new PostCommentRequest();
         request.setContent((String) body.get("content"));
         request.setParentCommentId(body.get("parentCommentId") != null ? Long.parseLong(body.get("parentCommentId").toString()) : null);
         request.setMedia((List<String>) body.get("media"));
-        return ResponseEntity.ok(groupService.addCommentToGroupPost(postId, userId, request));
+        return ResponseEntity.status(201).body(groupService.addCommentToGroupPost(postId, userId, request));
     }
 
     // ==================== Group Notifications ====================
 
     @GetMapping("/notifications")
     public ResponseEntity<List<GroupNotificationResponse>> getGroupNotifications(
-            @RequestParam Long userId) {
-        return ResponseEntity.ok(groupService.getGroupNotifications(userId));
+            @RequestParam(required = false) Long userId) {
+        return ResponseEntity.ok(groupService.getGroupNotifications(authenticatedUserService.getCurrentUserId()));
     }
 
     @GetMapping("/notifications/unread-count")
     public ResponseEntity<Map<String, Long>> getUnreadGroupNotificationCount(
-            @RequestParam Long userId) {
+            @RequestParam(required = false) Long userId) {
         Map<String, Long> response = new HashMap<>();
-        response.put("count", groupService.getUnreadGroupNotificationCount(userId));
+        response.put("count", groupService.getUnreadGroupNotificationCount(authenticatedUserService.getCurrentUserId()));
         return ResponseEntity.ok(response);
     }
 
     @PutMapping("/notifications/{notificationId}/read")
     public ResponseEntity<Void> markNotificationRead(
             @PathVariable Long notificationId) {
-        groupService.markGroupNotificationAsRead(notificationId);
+        groupService.markGroupNotificationAsRead(notificationId, authenticatedUserService.getCurrentUserId());
         return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/notifications/read-all")
     public ResponseEntity<Void> markAllNotificationsRead(
-            @RequestParam Long userId) {
-        groupService.markAllGroupNotificationsAsRead(userId);
+            @RequestParam(required = false) Long userId) {
+        groupService.markAllGroupNotificationsAsRead(authenticatedUserService.getCurrentUserId());
         return ResponseEntity.noContent().build();
     }
 
-    // ==================== Advisor Management (Step 3) ====================
+    // ==================== Advisor Management ====================
 
     /**
      * Get list of advisors by faculty (for Đoàn khoa to pick from)
      */
     @GetMapping("/advisors")
     public ResponseEntity<List<UserResponse>> getAdvisorsByFaculty(
-            @RequestParam(required = false) String faculty) {
-        List<User> advisors;
-        if (faculty != null && !faculty.isBlank()) {
-            advisors = userRepository.findByRoleAndFaculty("advisor", faculty);
-        } else {
-            advisors = userRepository.findByRole("advisor");
+            @RequestParam(required = false) Long requesterId) {
+        User requester = userRepository.findById(authenticatedUserService.getCurrentUserId())
+            .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        if (!"faculty_union".equals(requester.getRole()) || requester.getFaculty() == null) {
+            throw new IllegalArgumentException("Chỉ Đoàn khoa được xem danh sách giảng viên thuộc khoa");
         }
+        List<User> advisors = userRepository.findByRoleAndFaculty("advisor", requester.getFaculty());
         // Simple mapping without friend count for this endpoint
         List<UserResponse> responses = advisors.stream().map(u ->
             new UserResponse(
@@ -367,10 +384,10 @@ public class GroupController {
     @PostMapping("/{groupId}/add-advisor")
     public ResponseEntity<?> addAdvisorToGroup(
             @PathVariable Long groupId,
-            @RequestParam Long adminId,
+            @RequestParam(required = false) Long adminId,
             @RequestParam Long advisorId) {
         try {
-            GroupMemberResponse response = groupService.addAdvisorToGroup(groupId, advisorId, adminId);
+            GroupMemberResponse response = groupService.addAdvisorToGroup(groupId, advisorId, authenticatedUserService.getCurrentUserId());
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
@@ -383,12 +400,14 @@ public class GroupController {
     @PostMapping("/{groupId}/invite-advisor")
     public ResponseEntity<?> inviteAdvisor(
             @PathVariable Long groupId,
+            @RequestParam(required = false) Long adminId,
             @RequestBody Map<String, String> body) {
         try {
             String advisorEmail = body.get("email");
             if (advisorEmail == null || advisorEmail.isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("message", "Email không được để trống"));
             }
+            groupService.validateAdvisorInvite(groupId, authenticatedUserService.getCurrentUserId(), advisorEmail);
 
             // Get group info
             GroupResponse group = groupService.getGroup(groupId);
@@ -407,6 +426,8 @@ public class GroupController {
                 "inviteLink", inviteLink,
                 "qrImageUrl", qrImageUrl
             ));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         } catch (Exception ex) {
             return ResponseEntity.status(500).body(Map.of("message", "Không thể gửi lời mời: " + ex.getMessage()));
         }
@@ -453,24 +474,20 @@ public class GroupController {
         }
     }
 
-    // ==================== Student Invite (Step 4) ====================
+    // ==================== Student Invite ====================
 
     /**
-     * Bulk invite students from Excel file.
-     * Reads the "MSSV" column (case-insensitive), validates 8-digit codes,
-     * adds registered students to group, sends email invites for unregistered ones.
+     * Ham doc file Excel, lay cot MSSV, them sinh vien da co tai khoan vao nhom
+     * va gui email moi cho sinh vien chua dang ky.
      */
     @PostMapping("/{groupId}/bulk-invite-students")
     public ResponseEntity<?> bulkInviteStudents(
             @PathVariable Long groupId,
-            @RequestParam Long adminId,
+            @RequestParam(required = false) Long adminId,
             @RequestParam("file") MultipartFile file) {
         try {
-            // Validate admin is silver_key or gold_key
-            GroupMember admin = groupService.getGroupMemberEntity(groupId, adminId);
-            if (admin == null || (!"gold_key".equals(admin.getRole()) && !"silver_key".equals(admin.getRole()))) {
-                return ResponseEntity.status(403).body(Map.of("message", "Chỉ cố vấn hoặc đoàn khoa mới có quyền mời sinh viên"));
-            }
+            Long currentAdminId = authenticatedUserService.getCurrentUserId();
+            groupService.validateStudentManager(groupId, currentAdminId);
 
             if (file.isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of("message", "File không được để trống"));
@@ -479,8 +496,13 @@ public class GroupController {
             GroupResponse group = groupService.getGroup(groupId);
             String frontendUrl = "http://localhost:5173";
 
-            // Parse Excel
+            // Doc danh sach MSSV hop le tu file Excel.
             List<String> mssvList = parseMssvFromExcel(file);
+            if (mssvList.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                    "message", "Không tìm thấy MSSV hợp lệ trong file Excel"
+                ));
+            }
 
             int added = 0, skipped = 0, invited = 0, errors = 0;
             List<String> addedNames = new java.util.ArrayList<>();
@@ -490,21 +512,20 @@ public class GroupController {
             for (String mssv : mssvList) {
                 String email = mssv + "@st.hcmuaf.edu.vn";
                 try {
-                    // Check if user exists
+                    // Doi MSSV thanh email truong de tim tai khoan sinh vien.
                     User student = userRepository.findByEmail(email).orElse(null);
                     if (student != null) {
-                        // User exists - check if already in group
+                        // Neu da co tai khoan thi them vao nhom neu chua la thanh vien.
                         boolean alreadyMember = groupService.isMemberOfGroup(groupId, student.getId());
                         if (alreadyMember) {
                             skipped++;
                         } else {
-                            // Add to group as member
-                            groupService.addStudentToGroup(groupId, student.getId(), adminId);
+                            groupService.addStudentToGroup(groupId, student.getId(), currentAdminId);
                             added++;
                             addedNames.add(student.getFullName() + " (" + mssv + ")");
                         }
                     } else {
-                        // User not registered - send invite email
+                        // Neu chua co tai khoan thi gui email moi tham gia nhom.
                         String inviteLink = frontendUrl + "/groups/" + groupId;
                         String qrImageUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" +
                             java.net.URLEncoder.encode(inviteLink, java.nio.charset.StandardCharsets.UTF_8);
@@ -530,14 +551,15 @@ public class GroupController {
             result.put("total", mssvList.size());
             return ResponseEntity.ok(result);
 
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         } catch (Exception ex) {
             return ResponseEntity.status(500).body(Map.of("message", "Lỗi xử lý file: " + ex.getMessage()));
         }
     }
 
     /**
-     * Parse MSSV column from Excel file (case-insensitive header match).
-     * Handles both numeric and string cell types. Skips invalid rows.
+     * Ham doc cot MSSV trong Excel, chap nhan o dang chuoi hoac so.
      */
     private List<String> parseMssvFromExcel(MultipartFile file) throws Exception {
         List<String> mssvList = new java.util.ArrayList<>();
@@ -554,7 +576,7 @@ public class GroupController {
             Sheet sheet = workbook.getSheetAt(0);
             if (sheet == null) return mssvList;
 
-            // Find MSSV column index (case-insensitive)
+            // Tim vi tri cot co tieu de MSSV.
             Row headerRow = sheet.getRow(0);
             if (headerRow == null) return mssvList;
 
@@ -574,7 +596,7 @@ public class GroupController {
                 throw new IllegalArgumentException("Không tìm thấy cột 'MSSV' trong file Excel");
             }
 
-            // Read MSSV values from each row
+            // Doc tung dong va chi lay MSSV co dung 8 chu so.
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
@@ -585,14 +607,12 @@ public class GroupController {
                 String value = getCellStringValue(cell).trim();
                 if (value.isEmpty()) continue;
 
-                // Extract only digits (handle cases like "22130273.0" or extra spaces)
+                // Loai ky tu thua de xu ly truong hop Excel doc thanh "22130273.0".
                 String digitsOnly = value.replaceAll("[^0-9]", "");
 
-                // Validate: exactly 8 digits
                 if (digitsOnly.length() == 8) {
                     mssvList.add(digitsOnly);
                 }
-                // Skip invalid rows silently
             }
 
             workbook.close();
@@ -602,7 +622,7 @@ public class GroupController {
     }
 
     /**
-     * Get string value from any cell type (handles numeric, string, formula, etc.)
+     * Ham chuyen moi kieu cell Excel ve chuoi de doc MSSV on dinh.
      */
     private String getCellStringValue(Cell cell) {
         if (cell == null) return "";
@@ -610,7 +630,7 @@ public class GroupController {
             case STRING:
                 return cell.getStringCellValue();
             case NUMERIC:
-                // Handle numeric - convert to string without decimal
+                // So nguyen trong Excel duoc doi ve chuoi khong co .0.
                 double numVal = cell.getNumericCellValue();
                 if (numVal == Math.floor(numVal)) {
                     return String.valueOf((long) numVal);
@@ -636,24 +656,40 @@ public class GroupController {
     }
 
     /**
-     * Send invite email to a student to join the group
+     * Ham moi mot sinh vien vao nhom bang email.
      */
     @PostMapping("/{groupId}/invite-student")
     public ResponseEntity<?> inviteStudent(
             @PathVariable Long groupId,
+            @RequestParam(required = false) Long adminId,
             @RequestBody Map<String, String> body) {
         try {
+            Long currentAdminId = authenticatedUserService.getCurrentUserId();
+            GroupMember admin = groupService.validateStudentManager(groupId, currentAdminId);
             String studentEmail = body.get("email");
             if (studentEmail == null || studentEmail.isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("message", "Email không được để trống"));
             }
 
-            // Validate email is a student email
+            // Chi chap nhan email sinh vien dung mau MSSV@st.hcmuaf.edu.vn.
             if (!studentEmail.matches("^\\d{8}@st\\.hcmuaf\\.edu\\.vn$")) {
                 return ResponseEntity.badRequest().body(Map.of("message", "Email sinh viên phải có dạng: MSSV@st.hcmuaf.edu.vn"));
             }
 
             GroupResponse group = groupService.getGroup(groupId);
+            User registeredStudent = userRepository.findByEmail(studentEmail.toLowerCase()).orElse(null);
+            if (registeredStudent != null) {
+                if (!"student".equals(registeredStudent.getRole())) {
+                    return ResponseEntity.badRequest().body(Map.of("message", "Email này không thuộc tài khoản sinh viên"));
+                }
+                if ("faculty_union".equals(admin.getUser().getRole())
+                        && (admin.getUser().getFaculty() == null || !admin.getUser().getFaculty().equals(registeredStudent.getFaculty()))) {
+                    return ResponseEntity.badRequest().body(Map.of("message", "Sinh viên không thuộc cùng khoa"));
+                }
+                if (!groupService.isMemberOfGroup(groupId, registeredStudent.getId())) {
+                    groupService.addStudentToGroup(groupId, registeredStudent.getId(), currentAdminId);
+                }
+            }
 
             String frontendUrl = "http://localhost:5173";
             String inviteLink = frontendUrl + "/groups/" + groupId;
@@ -667,6 +703,8 @@ public class GroupController {
                 "inviteLink", inviteLink,
                 "qrImageUrl", qrImageUrl
             ));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         } catch (Exception ex) {
             return ResponseEntity.status(500).body(Map.of("message", "Không thể gửi lời mời: " + ex.getMessage()));
         }

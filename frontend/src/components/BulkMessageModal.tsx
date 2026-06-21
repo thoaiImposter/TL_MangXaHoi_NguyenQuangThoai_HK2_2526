@@ -35,10 +35,8 @@ export default function BulkMessageModal({ currentUser, onClose }: BulkMessageMo
   const loadFacultyUnions = async () => {
     setLoading(true);
     try {
-      // Search for users with faculty_union role
-      const allUsers = await api.searchUsers('');
-      const facultyUnions = allUsers.filter((u: User) => u.role === 'faculty_union' && u.id !== currentUser.id);
-      setFacultyUnions(facultyUnions);
+      const recipients = await api.getFacultyUnions(currentUser.id);
+      setFacultyUnions(recipients.filter((u: User) => u.id !== currentUser.id));
     } catch (error) {
       console.error('Failed to load faculty unions:', error);
     }

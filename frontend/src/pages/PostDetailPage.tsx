@@ -9,6 +9,7 @@ import PostMediaSection from '../components/PostMediaSection';
 import CommentMediaSection from '../components/CommentMediaSection';
 import CommentDraftMedia from '../components/CommentDraftMedia';
 import LinkifiedText from '../components/LinkifiedText';
+import ReportButton from '../components/ReportButton';
 
 type Draft = { content: string; media: string[] };
 type CommentLikeState = Record<number, { likeCount: number; likedByMe: boolean }>;
@@ -300,6 +301,7 @@ export default function PostDetailPage() {
                 >
                   Trả lời
                 </button>
+                {comment.authorId !== userId && <ReportButton reporterId={userId} targetType="comment" targetId={comment.id} />}
               </div>
             </div>
 
@@ -368,18 +370,19 @@ export default function PostDetailPage() {
   };
 
   return (
-    <div style={{ maxWidth: '700px', margin: '0 auto', padding: '20px' }}>
-      {/* Back button */}
-      <button 
-        className="chip" 
-        onClick={() => navigate(-1)} 
-        style={{ marginBottom: '16px' }}
-      >
-        ← Quay lại
-      </button>
+    <div className="post-detail-page">
+      <header className="post-detail-header">
+        <button className="chip" onClick={() => navigate(-1)}>← Quay lại</button>
+        <div>
+          <span className="eyebrow">Bài viết</span>
+          <h1>{post.authorName}</h1>
+        </div>
+        <Link className="btn btn-secondary btn-sm" to={`/users/${post.authorId}`}>Xem hồ sơ</Link>
+      </header>
 
-      {/* Post Content */}
-      <article className="post" style={{ padding: '20px' }}>
+      <div className="post-detail-grid">
+        <main className="post-detail-main">
+          <article className="post post-detail-post">
         <div className="post-head">
           <div className="post-author-row">
             <AvatarView src={post.authorAvatar} name={post.authorName} size="md" />
@@ -394,15 +397,17 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        <p className="post-body" style={{ marginTop: '12px', fontSize: '16px', lineHeight: '1.6' }}>
-          {post.content}
-        </p>
+        <LinkifiedText
+          className="post-body"
+          text={post.content}
+          style={{ marginTop: '12px', fontSize: '16px', lineHeight: '1.6' }}
+        />
 
         {post.isPoll && <PollCard post={post} userId={userId} />}
 
         <PostMediaSection media={post.media} />
 
-        <div className="feed-actions post-actions" style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #eee' }}>
+        <div className="feed-actions post-actions post-detail-actions">
           <button className={`chip ${post.likedByMe ? 'chip-solid' : ''}`} type="button" onClick={handleLikePost}>
             Thích <span>{post.likeCount}</span>
           </button>
@@ -412,26 +417,31 @@ export default function PostDetailPage() {
           <button className="chip" type="button" onClick={handleShareClick}>
             Chia sẻ <span>{post.shareCount}</span>
           </button>
+          {post.authorId !== userId && <ReportButton reporterId={userId} targetType="post" targetId={post.id} />}
         </div>
-      </article>
+          </article>
+        </main>
 
       {/* Comments Section */}
       {expandedComments && (
-        <div style={{ marginTop: '24px' }}>
-          <h3 style={{ marginBottom: '16px' }}>Bình luận ({comments.length})</h3>
+        <aside className="post-detail-comments">
+          <div className="post-detail-comments-head">
+            <div><span className="eyebrow">Thảo luận</span><h3>Bình luận ({comments.length})</h3></div>
+            <button className="chip" type="button" onClick={() => setExpandedComments(false)}>Thu gọn</button>
+          </div>
           
           {/* Comment list */}
-          <div style={{ marginBottom: '24px' }}>
+          <div className="post-detail-comment-scroll">
             {renderCommentTree(comments)}
             {comments.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '20px', color: '#65676b' }}>
+              <div className="post-detail-empty-comments">
                 Chưa có bình luận nào. Hãy là người đầu tiên bình luận!
               </div>
             )}
           </div>
 
           {/* Comment form */}
-          <div className="comment-composer" style={{ padding: '16px', background: '#f0f2f5', borderRadius: '12px' }}>
+          <div className="comment-composer post-detail-composer">
             <textarea
               placeholder="Viết bình luận..."
               rows={3}
@@ -451,8 +461,9 @@ export default function PostDetailPage() {
               </button>
             </div>
           </div>
-        </div>
+        </aside>
       )}
+      </div>
 
       {/* Image Viewer */}
 

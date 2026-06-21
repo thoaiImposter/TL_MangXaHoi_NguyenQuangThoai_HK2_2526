@@ -1,4 +1,4 @@
-import type { AuthPayload, AuthSession, PostComment, PostFeedItem, Post, PostShare, ProfileUpdatePayload, User, Friendship, FriendshipStatus, Message, BlockedUser, NotificationItem, Group, GroupMember, GroupJoinRequest, GroupPost, GroupNotification, PollResults } from '../types';
+import type { AuthPayload, AuthSession, PostComment, PostFeedItem, Post, PostShare, ProfileUpdatePayload, User, Friendship, FriendshipStatus, Message, BlockedUser, NotificationItem, Group, GroupMember, GroupJoinRequest, GroupPost, GroupNotification, PollResults, ReportItem, ReportTargetType, ReportStatus, AdminStats, AdminUserItem, AdminGroupItem, AdminPostItem, AdminCommentItem, Faculty, Major } from '../types';
 import { uploadFileDirect, type UploadFolder, type UploadProgress } from './upload';
 
 const BASE_URL = 'http://localhost:8080/api';
@@ -7,7 +7,7 @@ const BACKEND_ORIGIN = 'http://localhost:8080';
 /** Convert relative media URLs to full backend URLs */
 export function resolveMediaUrl(url: string | undefined | null): string {
   if (!url) return '';
-  if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('http://') || url.startsWith('https://')) return url;
   return BACKEND_ORIGIN + url;
 }
 
@@ -73,7 +73,7 @@ export function mimeToExtension(mimeType: string): string {
     'application/pdf': '.pdf',
   };
   if (map[mimeType]) return map[mimeType];
-  // Fallback: use subtype
+  // Neu MIME type chua co trong map thi lay subtype lam duoi file.
   const parts = mimeType.split('/');
   if (parts.length === 2) {
     const sub = parts[1].replace(/[^a-z0-9]/g, '');
@@ -106,18 +106,23 @@ export const api = {
     fullName: string;
     role: string;
     avatar?: string;
+    cover?: string;
     bio?: string;
     faculty?: string;
+    facultyId?: number;
     className?: string;
     academicYear?: string;
     academicTitle?: string;
+    majorId?: number;
     otp: string;
   }) =>
     request<AuthSession>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  getCurrentUserProfile: (userId: number) => request<User>(`/auth/me?userId=${userId}`),
+  getCurrentUserProfile: (_userId: number) => request<User>('/auth/me'),
+  getFaculties: () => request<Faculty[]>('/catalog/faculties'),
+  getMajors: (facultyId?: number) => request<Major[]>(`/catalog/majors${facultyId ? `?facultyId=${facultyId}` : ''}`),
 
   // User endpoints
   getProfile: (userId: number) => request<User>(`/users/${userId}`),
@@ -136,83 +141,108 @@ export const api = {
     body: JSON.stringify({ enabled }),
   }),
   searchUsers: (q: string) => request<User[]>(`/users/search?q=${encodeURIComponent(q)}`),
+  getFacultyUnions: (_requesterId: number) => request<User[]>('/users/faculty-unions'),
+  searchPosts: (q: string, viewerId?: number, page = 0, size = 20) =>
+    request<PostFeedItem[]>(`/posts/search?q=${encodeURIComponent(q)}${viewerId ? `&viewerId=${viewerId}` : ''}&page=${page}&size=${size}`),
+
+  createReport: (_reporterId: number, payload: { targetType: ReportTargetType; targetId: number; reason: string; details?: string }) =>
+    request<ReportItem>('/reports', { method: 'POST', body: JSON.stringify(payload) }),
+  getAdminReports: (_adminId: number, status: ReportStatus | 'all' = 'pending', page = 0, size = 30) =>
+    request<ReportItem[]>(`/admin/reports?status=${status}&page=${page}&size=${size}`),
+  getAdminReportStats: (_adminId: number) =>
+    request<Record<'all' | ReportStatus, number>>('/admin/reports/stats'),
+  resolveReport: (reportId: number, _adminId: number, payload: { action: 'dismiss' | 'resolve' | 'delete_target'; adminNote?: string }) =>
+    request<ReportItem>(`/admin/reports/${reportId}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  getAdminStats: (_adminId: number) => request<AdminStats>('/admin/stats'),
+  getAdminUsers: (_adminId: number, q = '', role = 'all', status = 'all') =>
+    request<AdminUserItem[]>(`/admin/users?q=${encodeURIComponent(q)}&role=${role}&status=${status}`),
+  getAdminGroups: (_adminId: number, q = '', privacy = 'all') =>
+    request<AdminGroupItem[]>(`/admin/groups?q=${encodeURIComponent(q)}&privacy=${privacy}`),
+  getAdminPosts: (_adminId: number, q = '', visibility = 'all') =>
+    request<AdminPostItem[]>(`/admin/posts?q=${encodeURIComponent(q)}&visibility=${visibility}`),
+  getAdminComments: (_adminId: number, q = '') =>
+    request<AdminCommentItem[]>(`/admin/comments?q=${encodeURIComponent(q)}`),
+  setAdminUserLocked: (_adminId: number, userId: number, locked: boolean) =>
+    request<AdminUserItem>(`/admin/users/${userId}/lock?locked=${locked}`, { method: 'PATCH' }),
+  deleteAdminItem: (_adminId: number, type: 'users' | 'groups' | 'posts' | 'comments', id: number) =>
+    request<void>(`/admin/${type}/${id}`, { method: 'DELETE' }),
 
   // Feed endpoints
   getFeed: (viewerId?: number, page = 0, size = 10) => request<PostFeedItem[]>(`/feed?${viewerId ? `viewerId=${viewerId}&` : ''}page=${page}&size=${size}`),
 
   // Post endpoints (RESTful: /users/{userId}/posts)
   getUserPosts: (userId: number, viewerId?: number, page = 0, size = 10, personalOnly = false) => request<PostFeedItem[]>(`/users/${userId}/posts?${viewerId ? `viewerId=${viewerId}&` : ''}personalOnly=${personalOnly}&page=${page}&size=${size}`),
-  createPost: (userId: number, payload: { content: string; visibility?: string; media?: MediaItem[] }) =>
-    request<Post>(`/users/${userId}/posts`, {
+  createPost: (_userId: number, payload: { content: string; visibility?: string; media?: MediaItem[] }) =>
+    request<Post>('/posts', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  updatePost: (postId: number, userId: number, payload: { content: string; visibility?: string; media?: MediaItem[] }) =>
-    request<Post>(`/posts/${postId}?userId=${userId}`, {
+  updatePost: (postId: number, _userId: number, payload: { content: string; visibility?: string; media?: MediaItem[] }) =>
+    request<Post>(`/posts/${postId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
-  deletePost: (postId: number, userId: number) =>
-    request<void>(`/posts/${postId}?userId=${userId}`, {
+  deletePost: (postId: number, _userId: number) =>
+    request<void>(`/posts/${postId}`, {
       method: 'DELETE',
     }),
   getPost: (postId: number, viewerId?: number) =>
     request<PostFeedItem>(`/posts/${postId}${viewerId ? `?viewerId=${viewerId}` : ''}`),
 
   // Post like endpoints (RESTful: /posts/{postId}/likes)
-  toggleLike: (postId: number, userId: number) =>
-    request<{ postId: number; likeCount: number; likedByMe: boolean }>(`/posts/${postId}/likes?userId=${userId}`, {
+  toggleLike: (postId: number, _userId: number) =>
+    request<{ postId: number; likeCount: number; likedByMe: boolean }>(`/posts/${postId}/likes`, {
       method: 'POST',
     }),
 
   // Post comment endpoints (RESTful: /posts/{postId}/comments)
   getComments: (postId: number, viewerId?: number) =>
     request<PostComment[]>(`/posts/${postId}/comments${viewerId ? `?viewerId=${viewerId}` : ''}`),
-  addComment: (postId: number, userId: number, payload: { content: string; media?: string[] }) =>
-    request<PostComment>(`/posts/${postId}/comments?userId=${userId}`, {
+  addComment: (postId: number, _userId: number, payload: { content: string; media?: string[] }) =>
+    request<PostComment>(`/posts/${postId}/comments`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  replyComment: (postId: number, commentId: number, userId: number, payload: { content: string; media?: string[] }) =>
-    request<PostComment>(`/posts/${postId}/comments/${commentId}/replies?userId=${userId}`, {
+  replyComment: (postId: number, commentId: number, _userId: number, payload: { content: string; media?: string[] }) =>
+    request<PostComment>(`/posts/${postId}/comments/${commentId}/replies`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  updateComment: (commentId: number, userId: number, content: string) =>
-    request<PostComment>(`/posts/comments/${commentId}?userId=${userId}`, {
+  updateComment: (commentId: number, _userId: number, content: string) =>
+    request<PostComment>(`/posts/comments/${commentId}`, {
       method: 'PUT',
       body: JSON.stringify({ content }),
     }),
-  deleteComment: (commentId: number, userId: number) =>
-    request<void>(`/posts/comments/${commentId}?userId=${userId}`, {
+  deleteComment: (commentId: number, _userId: number) =>
+    request<void>(`/posts/comments/${commentId}`, {
       method: 'DELETE',
     }),
 
   // Comment like endpoints (RESTful: /posts/comments/{commentId}/likes)
-  toggleCommentLike: (commentId: number, userId: number) =>
-    request<{ commentId: number; likeCount: number; likedByMe: boolean }>(`/posts/comments/${commentId}/likes?userId=${userId}`, {
+  toggleCommentLike: (commentId: number, _userId: number) =>
+    request<{ commentId: number; likeCount: number; likedByMe: boolean }>(`/posts/comments/${commentId}/likes`, {
       method: 'POST',
     }),
 
   // Friend request endpoints (RESTful: /users/{userId}/friend-requests)
-  sendFriendRequest: (userId: number, targetId: number) =>
-    request<Friendship>(`/users/${userId}/friend-requests?targetId=${targetId}`, { method: 'POST' }),
+  sendFriendRequest: (_userId: number, targetId: number) =>
+    request<Friendship>(`/friend-requests?targetId=${targetId}`, { method: 'POST' }),
   getPendingFriendRequests: (userId: number) => request<Friendship[]>(`/users/${userId}/friend-requests/pending`),
-  acceptFriendRequest: (friendshipId: number, userId: number) =>
-    request<Friendship>(`/friend-requests/${friendshipId}/accept?userId=${userId}`, { method: 'PUT' }),
-  rejectOrCancelFriendRequest: (friendshipId: number, userId: number) =>
-    request<void>(`/friend-requests/${friendshipId}?userId=${userId}`, { method: 'DELETE' }),
+  acceptFriendRequest: (friendshipId: number, _userId: number) =>
+    request<Friendship>(`/friend-requests/${friendshipId}/accept`, { method: 'PUT' }),
+  rejectOrCancelFriendRequest: (friendshipId: number, _userId: number) =>
+    request<void>(`/friend-requests/${friendshipId}`, { method: 'DELETE' }),
 
   // Friendship endpoints (RESTful: /users/{userId}/friends)
   getFriends: (userId: number) => request<Friendship[]>(`/users/${userId}/friends`),
-  unfriend: (friendshipId: number, userId: number) =>
-    request<void>(`/friendships/${friendshipId}?userId=${userId}`, { method: 'DELETE' }),
+  unfriend: (friendshipId: number, _userId: number) =>
+    request<void>(`/friendships/${friendshipId}`, { method: 'DELETE' }),
   getFriendshipStatus: (viewerId: number, targetId: number) =>
     request<FriendshipStatus>(`/users/${viewerId}/friendship-status/${targetId}`),
 
   // Message endpoints (RESTful: /users/{userId}/messages)
-  sendMessage: (senderId: number, receiverId: number, content: string, mediaUrl?: string) =>
-    request<Message>(`/users/${senderId}/messages`, {
+  sendMessage: (_senderId: number, receiverId: number, content: string, mediaUrl?: string) =>
+    request<Message>('/messages', {
       method: 'POST',
       body: JSON.stringify({ receiverId, content, mediaUrl }),
     }),
@@ -221,8 +251,8 @@ export const api = {
   getUnreadMessages: (userId: number) => request<Message[]>(`/users/${userId}/messages/unread`),
   markRead: (userId: number, otherId: number) =>
     request<void>(`/users/${userId}/conversations/${otherId}/read`, { method: 'PUT' }),
-  recallMessage: (messageId: number, userId: number) =>
-    request<Message>(`/messages/${messageId}/recall?userId=${userId}`, { method: 'DELETE' }),
+  recallMessage: (messageId: number, _userId: number) =>
+    request<Message>(`/messages/${messageId}/recall`, { method: 'DELETE' }),
 
   // Block endpoints (RESTful: /users/{userId}/blocks)
   blockUser: (userId: number, blockedId: number) =>
@@ -242,96 +272,101 @@ export const api = {
 
   // Group endpoints
   // Group CRUD
-  createGroup: (userId: number, payload: { name: string; description?: string; avatar?: string; cover?: string; privacy?: 'public' | 'private'; approvalRequired?: boolean }) =>
+  createGroup: (_userId: number, payload: { name: string; description?: string; avatar?: string; cover?: string; privacy?: 'public' | 'private'; approvalRequired?: boolean }) =>
     request<Group>('/groups', {
       method: 'POST',
-      body: JSON.stringify({ userId, ...payload }),
+      body: JSON.stringify(payload),
     }),
   getGroup: (groupId: number) => request<Group>(`/groups/${groupId}`),
-  updateGroup: (groupId: number, userId: number, payload: { name?: string; description?: string; avatar?: string; cover?: string; privacy?: 'public' | 'private'; approvalRequired?: boolean }) =>
+  updateGroup: (groupId: number, _userId: number, payload: { name?: string; description?: string; avatar?: string; cover?: string; privacy?: 'public' | 'private'; approvalRequired?: boolean }) =>
     request<Group>(`/groups/${groupId}`, {
       method: 'PUT',
-      body: JSON.stringify({ userId, ...payload }),
+      body: JSON.stringify(payload),
     }),
-  deleteGroup: (groupId: number, userId: number) =>
-    request<void>(`/groups/${groupId}?userId=${userId}`, { method: 'DELETE' }),
+  deleteGroup: (groupId: number, _userId: number) =>
+    request<void>(`/groups/${groupId}`, { method: 'DELETE' }),
 
   // Group Discovery
   getPublicGroups: (page = 0, size = 10) => request<Group[]>(`/groups/public?page=${page}&size=${size}`),
-  getMyGroups: (userId: number, page = 0, size = 10) => request<Group[]>(`/groups/my-groups?userId=${userId}&page=${page}&size=${size}`),
+  getMyGroups: (_userId: number, page = 0, size = 10) => request<Group[]>(`/groups/my-groups?page=${page}&size=${size}`),
   searchGroups: (q: string, page = 0, size = 10) => request<Group[]>(`/groups/search?q=${encodeURIComponent(q)}&page=${page}&size=${size}`),
 
   // Member Management
-  joinGroup: (groupId: number, userId: number) =>
+  joinGroup: (groupId: number, _userId: number) =>
     request<GroupMember | { message: string }>(`/groups/${groupId}/join`, {
       method: 'POST',
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({}),
     }),
-  leaveGroup: (groupId: number, userId: number) =>
-    request<void>(`/groups/${groupId}/leave?userId=${userId}`, { method: 'POST' }),
+  leaveGroup: (groupId: number, _userId: number) =>
+    request<void>(`/groups/${groupId}/leave`, { method: 'POST' }),
   getGroupMembers: (groupId: number, role?: string) =>
     request<GroupMember[]>(`/groups/${groupId}/members${role ? `?role=${role}` : ''}`),
-  removeMember: (groupId: number, memberId: number, adminId: number) =>
-    request<void>(`/groups/${groupId}/members/${memberId}?adminId=${adminId}`, { method: 'DELETE' }),
+  removeMember: (groupId: number, memberId: number, _adminId: number) =>
+    request<void>(`/groups/${groupId}/members/${memberId}`, { method: 'DELETE' }),
 
   // Join Requests
-  getMyPendingGroupJoinRequests: (userId: number) =>
-    request<GroupJoinRequest[]>(`/groups/join-requests/pending?userId=${userId}`),
-  getPendingJoinRequests: (groupId: number, adminId: number) =>
-    request<GroupJoinRequest[]>(`/groups/${groupId}/join-requests?adminId=${adminId}`),
-  approveJoinRequest: (groupId: number, requestId: number, adminId: number) =>
-    request<GroupMember>(`/groups/${groupId}/join-requests/${requestId}/approve?adminId=${adminId}`, { method: 'PUT' }),
-  rejectJoinRequest: (groupId: number, requestId: number, adminId: number) =>
-    request<void>(`/groups/${groupId}/join-requests/${requestId}?adminId=${adminId}`, { method: 'DELETE' }),
+  getMyPendingGroupJoinRequests: (_userId: number) =>
+    request<GroupJoinRequest[]>('/groups/join-requests/pending'),
+  getPendingJoinRequests: (groupId: number, _adminId: number) =>
+    request<GroupJoinRequest[]>(`/groups/${groupId}/join-requests`),
+  approveJoinRequest: (groupId: number, requestId: number, _adminId: number) =>
+    request<GroupMember>(`/groups/${groupId}/join-requests/${requestId}/approve`, { method: 'PUT' }),
+  rejectJoinRequest: (groupId: number, requestId: number, _adminId: number) =>
+    request<void>(`/groups/${groupId}/join-requests/${requestId}`, { method: 'DELETE' }),
 
   // Role Management
-  grantAdminRole: (groupId: number, targetUserId: number, adminId: number) =>
-    request<GroupMember>(`/groups/${groupId}/members/${targetUserId}/grant-admin?adminId=${adminId}`, { method: 'PUT' }),
-  revokeAdminRole: (groupId: number, targetUserId: number, adminId: number) =>
-    request<GroupMember>(`/groups/${groupId}/members/${targetUserId}/revoke-admin?adminId=${adminId}`, { method: 'PUT' }),
+  grantAdminRole: (groupId: number, targetUserId: number, _adminId: number) =>
+    request<GroupMember>(`/groups/${groupId}/members/${targetUserId}/grant-admin`, { method: 'PUT' }),
+  revokeAdminRole: (groupId: number, targetUserId: number, _adminId: number) =>
+    request<GroupMember>(`/groups/${groupId}/members/${targetUserId}/revoke-admin`, { method: 'PUT' }),
 
   // Ban Management
-  banUser: (groupId: number, adminId: number, targetUserId: number, reason?: string) =>
+  banUser: (groupId: number, _adminId: number, targetUserId: number, reason?: string) =>
     request<void>(`/groups/${groupId}/bans`, {
       method: 'POST',
-      body: JSON.stringify({ adminId, targetUserId, reason }),
+      body: JSON.stringify({ targetUserId, reason }),
     }),
-  unbanUser: (groupId: number, targetUserId: number, adminId: number) =>
-    request<void>(`/groups/${groupId}/bans/${targetUserId}?adminId=${adminId}`, { method: 'DELETE' }),
+  unbanUser: (groupId: number, targetUserId: number, _adminId: number) =>
+    request<void>(`/groups/${groupId}/bans/${targetUserId}`, { method: 'DELETE' }),
 
   // Group Posts
-  createGroupPost: (groupId: number, userId: number, payload: { content: string; media?: MediaItem[] }) =>
+  createGroupPost: (groupId: number, _userId: number, payload: { content: string; media?: MediaItem[] }) =>
     request<GroupPost>(`/groups/${groupId}/posts`, {
       method: 'POST',
-      body: JSON.stringify({ userId, ...payload }),
+      body: JSON.stringify(payload),
+    }),
+  createGroupAnnouncement: (groupId: number, _userId: number, payload: { content: string; media?: MediaItem[] }) =>
+    request<GroupPost>(`/groups/${groupId}/announcements`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
   getGroupPosts: (groupId: number, viewerId?: number, filter?: string, page = 0, size = 10) =>
     request<GroupPost[]>(`/groups/${groupId}/posts?${viewerId ? `viewerId=${viewerId}&` : ''}${filter ? `filter=${filter}&` : ''}page=${page}&size=${size}`),
-  approveGroupPost: (groupId: number, postId: number, adminId: number) =>
-    request<GroupPost>(`/groups/${groupId}/posts/${postId}/approve?adminId=${adminId}`, { method: 'PUT' }),
-  rejectGroupPost: (groupId: number, postId: number, adminId: number) =>
-    request<void>(`/groups/${groupId}/posts/${postId}/reject?adminId=${adminId}`, { method: 'DELETE' }),
-  deleteGroupPost: (groupId: number, postId: number, userId: number) =>
-    request<void>(`/groups/${groupId}/posts/${postId}?userId=${userId}`, { method: 'DELETE' }),
+  approveGroupPost: (groupId: number, postId: number, _adminId: number) =>
+    request<GroupPost>(`/groups/${groupId}/posts/${postId}/approve`, { method: 'PUT' }),
+  rejectGroupPost: (groupId: number, postId: number, _adminId: number) =>
+    request<void>(`/groups/${groupId}/posts/${postId}/reject`, { method: 'DELETE' }),
+  deleteGroupPost: (groupId: number, postId: number, _userId: number) =>
+    request<void>(`/groups/${groupId}/posts/${postId}`, { method: 'DELETE' }),
 
   // Group Post Interactions
-  toggleLikeGroupPost: (groupId: number, postId: number, userId: number) =>
-    request<{ postId: number; likeCount: number; likedByMe: boolean }>(`/groups/${groupId}/posts/${postId}/likes?userId=${userId}`, { method: 'POST' }),
-  addCommentGroupPost: (groupId: number, postId: number, userId: number, payload: { content: string; parentCommentId?: number; media?: string[] }) =>
+  toggleLikeGroupPost: (groupId: number, postId: number, _userId: number) =>
+    request<{ postId: number; likeCount: number; likedByMe: boolean }>(`/groups/${groupId}/posts/${postId}/likes`, { method: 'POST' }),
+  addCommentGroupPost: (groupId: number, postId: number, _userId: number, payload: { content: string; parentCommentId?: number; media?: string[] }) =>
     request<PostComment>(`/groups/${groupId}/posts/${postId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ userId, ...payload }),
+      body: JSON.stringify(payload),
     }),
 
   // Group Notifications
-  getGroupNotifications: (userId: number) => request<GroupNotification[]>(`/groups/notifications?userId=${userId}`),
-  getUnreadGroupNotificationCount: (userId: number) => request<{ count: number }>(`/groups/notifications/unread-count?userId=${userId}`),
+  getGroupNotifications: (_userId: number) => request<GroupNotification[]>('/groups/notifications'),
+  getUnreadGroupNotificationCount: (_userId: number) => request<{ count: number }>('/groups/notifications/unread-count'),
   markGroupNotificationRead: (notificationId: number) => request<void>(`/groups/notifications/${notificationId}/read`, { method: 'PUT' }),
-  markAllGroupNotificationsRead: (userId: number) => request<void>(`/groups/notifications/read-all?userId=${userId}`, { method: 'PUT' }),
+  markAllGroupNotificationsRead: (_userId: number) => request<void>('/groups/notifications/read-all', { method: 'PUT' }),
 
   // Post Share endpoints
-  sharePost: (postId: number, userId: number, payload: { shareContent?: string; shareVisibility?: string; targetGroupId?: number }) =>
-    request<PostShare>(`/posts/${postId}/share?userId=${userId}`, {
+  sharePost: (postId: number, _userId: number, payload: { shareContent?: string; shareVisibility?: 'public' | 'friends' | 'private' }) =>
+    request<PostShare>(`/posts/${postId}/share`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -339,10 +374,10 @@ export const api = {
     request<PostShare[]>(`/posts/${postId}/shares?${viewerId ? `viewerId=${viewerId}&` : ''}page=${page}&size=${size}`),
   getShareCount: (postId: number) =>
     request<{ count: number }>(`/posts/${postId}/shares/count`),
-  getShareStatus: (postId: number, userId: number) =>
-    request<{ hasShared: boolean }>(`/posts/${postId}/share/status?userId=${userId}`),
-  deleteShare: (shareId: number, userId: number) =>
-    request<void>(`/shares/${shareId}?userId=${userId}`, { method: 'DELETE' }),
+  getShareStatus: (postId: number, _userId: number) =>
+    request<{ hasShared: boolean }>(`/posts/${postId}/share/status`),
+  deleteShare: (shareId: number, _userId: number) =>
+    request<void>(`/shares/${shareId}`, { method: 'DELETE' }),
   getSharesForFeed: (viewerId?: number, page = 0, size = 10) =>
     request<PostShare[]>(`/feed/shares?${viewerId ? `viewerId=${viewerId}&` : ''}page=${page}&size=${size}`),
   getGroupShares: (groupId: number, viewerId?: number, page = 0, size = 10) =>
@@ -351,73 +386,74 @@ export const api = {
     request<PostShare[]>(`/users/${userId}/shares?${viewerId ? `viewerId=${viewerId}&` : ''}page=${page}&size=${size}`),
 
   // Group Chat endpoints
-  sendGroupMessage: (groupId: number, senderId: number, content: string, mediaUrl?: string, mentionedUserIds?: number[], isAllMentioned?: boolean) =>
+  sendGroupMessage: (groupId: number, _senderId: number, content: string, mediaUrl?: string, mentionedUserIds?: number[], isAllMentioned?: boolean) =>
     request<Message>(`/groups/${groupId}/messages`, {
       method: 'POST',
       body: JSON.stringify({
-        senderId,
         content,
         mediaUrl,
         mentionedUserIds,
         isAllMentioned
       }),
     }),
-  getGroupMessages: (groupId: number, userId: number, page = 0, size = 50) =>
-    request<Message[]>(`/groups/${groupId}/messages?userId=${userId}&page=${page}&size=${size}`),
-  joinGroupChat: (groupId: number, userId: number) =>
-    request<void>(`/groups/${groupId}/chat/join?userId=${userId}`, { method: 'POST' }),
-  leaveGroupChat: (groupId: number, userId: number) =>
-    request<void>(`/groups/${groupId}/chat/leave?userId=${userId}`, { method: 'POST' }),
+  getGroupMessages: (groupId: number, _userId: number, page = 0, size = 50) =>
+    request<Message[]>(`/groups/${groupId}/messages?page=${page}&size=${size}`),
+  joinGroupChat: (groupId: number, _userId: number) =>
+    request<void>(`/groups/${groupId}/chat/join`, { method: 'POST' }),
+  leaveGroupChat: (groupId: number, _userId: number) =>
+    request<void>(`/groups/${groupId}/chat/leave`, { method: 'POST' }),
 
   // File upload endpoint (multipart form)
   uploadFile: (file: File, type?: 'image' | 'video' | 'file', folder: UploadFolder = 'posts', onProgress?: UploadProgress) =>
     uploadFileDirect(file, type, folder, onProgress),
 
   // Poll endpoints
-  createPoll: (userId: number, payload: { title: string; content: string; visibility?: string; options: string[]; endDate?: string; allowMultiple?: boolean }) =>
+  createPoll: (_userId: number, payload: { title: string; content: string; visibility?: string; options: string[]; endDate?: string; allowMultiple?: boolean }) =>
     request<Post>(`/polls`, {
       method: 'POST',
-      body: JSON.stringify({ authorId: userId, ...payload }),
+      body: JSON.stringify(payload),
     }),
-  createGroupPoll: (groupId: number, userId: number, payload: { title: string; content: string; options: string[]; endDate?: string; allowMultiple?: boolean }) =>
+  createGroupPoll: (groupId: number, _userId: number, payload: { title: string; content: string; options: string[]; endDate?: string; allowMultiple?: boolean }) =>
     request<GroupPost>(`/groups/${groupId}/posts/poll`, {
       method: 'POST',
-      body: JSON.stringify({ userId, ...payload }),
+      body: JSON.stringify(payload),
     }),
-  votePoll: (postId: number, userId: number, optionIds: number[]) =>
+  votePoll: (postId: number, _userId: number, optionIds: number[]) =>
     request<PollResults>(`/polls/${postId}/vote`, {
       method: 'POST',
-      body: JSON.stringify({ userId, optionIds }),
+      body: JSON.stringify({ optionIds }),
     }),
-  getPollResults: (postId: number, userId: number) =>
-    request<PollResults>(`/polls/${postId}/results?userId=${userId}`),
-  removePollVote: (postId: number, userId: number) =>
-    request<void>(`/polls/${postId}/vote?userId=${userId}`, { method: 'DELETE' }),
+  getPollResults: (postId: number, _userId: number) =>
+    request<PollResults>(`/polls/${postId}/results`),
+  removePollVote: (postId: number, _userId: number) =>
+    request<void>(`/polls/${postId}/vote`, { method: 'DELETE' }),
 
-  // Advisor Management endpoints (Step 3)
-  getAdvisorsByFaculty: (faculty?: string) =>
-    request<User[]>(`/groups/advisors${faculty ? `?faculty=${encodeURIComponent(faculty)}` : ''}`),
-  addAdvisorToGroup: (groupId: number, adminId: number, advisorId: number) =>
-    request<GroupMember>(`/groups/${groupId}/add-advisor?adminId=${adminId}&advisorId=${advisorId}`, { method: 'POST' }),
-  inviteAdvisorToGroup: (groupId: number, email: string) =>
+  // Lay danh sach co van theo khoa de them vao nhom/lop.
+  getAdvisorsByFaculty: (_requesterId: number) =>
+    request<User[]>('/groups/advisors'),
+  // Them truc tiep mot co van da co tai khoan vao nhom.
+  addAdvisorToGroup: (groupId: number, _adminId: number, advisorId: number) =>
+    request<GroupMember>(`/groups/${groupId}/add-advisor?advisorId=${advisorId}`, { method: 'POST' }),
+  // Gui email moi co van vao nhom khi biet email.
+  inviteAdvisorToGroup: (groupId: number, _adminId: number, email: string) =>
     request<{ message: string; inviteLink: string; qrImageUrl: string }>(`/groups/${groupId}/invite-advisor`, {
       method: 'POST',
       body: JSON.stringify({ email }),
     }),
 
-  // Student Invite endpoint (Step 4)
-  inviteStudentToGroup: (groupId: number, email: string) =>
+  // Moi mot sinh vien vao nhom bang email MSSV@st.hcmuaf.edu.vn.
+  inviteStudentToGroup: (groupId: number, _adminId: number, email: string) =>
     request<{ message: string; inviteLink: string; qrImageUrl: string }>(`/groups/${groupId}/invite-student`, {
       method: 'POST',
       body: JSON.stringify({ email }),
     }),
 
-  // Bulk invite students from Excel (Step 4 enhanced)
-  bulkInviteStudents: (groupId: number, adminId: number, file: File) => {
+  // Doc file Excel, lay cot MSSV va them/moi nhieu sinh vien vao nhom.
+  bulkInviteStudents: (groupId: number, _adminId: number, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
     return request<{ message: string; added: number; skipped: number; invited: number; errors: number; total: number; addedNames: string[]; invitedEmails: string[]; errorDetails: string[] }>(
-      `/groups/${groupId}/bulk-invite-students?adminId=${adminId}`,
+      `/groups/${groupId}/bulk-invite-students`,
       { method: 'POST', body: formData }
     );
   },

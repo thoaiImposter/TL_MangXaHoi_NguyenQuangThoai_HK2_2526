@@ -29,7 +29,10 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                .requestMatchers("/ws/chat", "/api/auth/login", "/api/auth/register", "/api/auth/register/request-otp", "/api/auth/register/resend-otp").permitAll()
+                .requestMatchers(HttpMethod.PUT, "/api/users/*").permitAll()
+                .requestMatchers(HttpMethod.PATCH, "/api/users/*/protection").permitAll()
+                .requestMatchers("/ws/chat", "/api/auth/login", "/api/auth/register", "/api/auth/register/request-otp", "/api/auth/register/resend-otp", "/api/files/registration-signature", "/api/catalog/**").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);

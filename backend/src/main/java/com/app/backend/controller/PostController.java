@@ -1,6 +1,7 @@
 package com.app.backend.controller;
 
 import com.app.backend.dto.*;
+import com.app.backend.service.AuthenticatedUserService;
 import com.app.backend.service.PostService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,9 +14,11 @@ import java.util.Map;
 @RequestMapping("/api")
 public class PostController {
     private final PostService postService;
+    private final AuthenticatedUserService authenticatedUserService;
 
-    public PostController(PostService postService) {
+    public PostController(PostService postService, AuthenticatedUserService authenticatedUserService) {
         this.postService = postService;
+        this.authenticatedUserService = authenticatedUserService;
     }
 
     // Feed endpoints
@@ -24,6 +27,14 @@ public class PostController {
                                           @RequestParam(defaultValue = "0") int page,
                                           @RequestParam(defaultValue = "10") int size) {
         return postService.getFeed(viewerId, page, size);
+    }
+
+    @GetMapping("/posts/search")
+    public List<PostFeedResponse> searchPosts(@RequestParam String q,
+                                              @RequestParam(required = false) Long viewerId,
+                                              @RequestParam(defaultValue = "0") int page,
+                                              @RequestParam(defaultValue = "20") int size) {
+        return postService.searchPosts(q, viewerId, page, size);
     }
 
     // User posts endpoints (RESTful: /users/{userId}/posts)
@@ -39,7 +50,16 @@ public class PostController {
     @PostMapping("/users/{userId}/posts")
     public ResponseEntity<?> createPost(@PathVariable Long userId, @RequestBody PostRequest request) {
         try {
-            return ResponseEntity.ok(postService.createPost(userId, request));
+            return ResponseEntity.status(201).body(postService.createPost(authenticatedUserService.getCurrentUserId(), request));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        }
+    }
+
+    @PostMapping("/posts")
+    public ResponseEntity<?> createCurrentUserPost(@RequestBody PostRequest request) {
+        try {
+            return ResponseEntity.status(201).body(postService.createPost(authenticatedUserService.getCurrentUserId(), request));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
@@ -56,19 +76,19 @@ public class PostController {
     }
 
     @PutMapping("/posts/{postId}")
-    public ResponseEntity<?> updatePost(@PathVariable Long postId, @RequestParam Long userId, @RequestBody PostRequest request) {
+    public ResponseEntity<?> updatePost(@PathVariable Long postId, @RequestParam(required = false) Long userId, @RequestBody PostRequest request) {
         try {
-            return ResponseEntity.ok(postService.updatePost(postId, userId, request));
+            return ResponseEntity.ok(postService.updatePost(postId, authenticatedUserService.getCurrentUserId(), request));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
     }
 
     @DeleteMapping("/posts/{postId}")
-    public ResponseEntity<?> deletePost(@PathVariable Long postId, @RequestParam Long userId) {
+    public ResponseEntity<?> deletePost(@PathVariable Long postId, @RequestParam(required = false) Long userId) {
         try {
-            postService.deletePost(postId, userId);
-            return ResponseEntity.ok().build();
+            postService.deletePost(postId, authenticatedUserService.getCurrentUserId());
+            return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
@@ -81,38 +101,38 @@ public class PostController {
     }
 
     @PostMapping("/posts/{postId}/comments")
-    public ResponseEntity<?> addComment(@PathVariable Long postId, @RequestParam Long userId, @RequestBody PostCommentRequest request) {
+    public ResponseEntity<?> addComment(@PathVariable Long postId, @RequestParam(required = false) Long userId, @RequestBody PostCommentRequest request) {
         try {
-            return ResponseEntity.ok(postService.addComment(postId, userId, request));
+            return ResponseEntity.status(201).body(postService.addComment(postId, authenticatedUserService.getCurrentUserId(), request));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
     }
 
     @PostMapping("/posts/{postId}/comments/{commentId}/replies")
-    public ResponseEntity<?> replyComment(@PathVariable Long postId, @PathVariable Long commentId, @RequestParam Long userId, @RequestBody PostCommentRequest request) {
+    public ResponseEntity<?> replyComment(@PathVariable Long postId, @PathVariable Long commentId, @RequestParam(required = false) Long userId, @RequestBody PostCommentRequest request) {
         try {
             request.setParentCommentId(commentId);
-            return ResponseEntity.ok(postService.addComment(postId, userId, request));
+            return ResponseEntity.status(201).body(postService.addComment(postId, authenticatedUserService.getCurrentUserId(), request));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
     }
 
     @PutMapping("/posts/comments/{commentId}")
-    public ResponseEntity<?> updateComment(@PathVariable Long commentId, @RequestParam Long userId, @RequestBody PostCommentRequest request) {
+    public ResponseEntity<?> updateComment(@PathVariable Long commentId, @RequestParam(required = false) Long userId, @RequestBody PostCommentRequest request) {
         try {
-            return ResponseEntity.ok(postService.updateComment(commentId, userId, request.getContent()));
+            return ResponseEntity.ok(postService.updateComment(commentId, authenticatedUserService.getCurrentUserId(), request.getContent()));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
     }
 
     @DeleteMapping("/posts/comments/{commentId}")
-    public ResponseEntity<?> deleteComment(@PathVariable Long commentId, @RequestParam Long userId) {
+    public ResponseEntity<?> deleteComment(@PathVariable Long commentId, @RequestParam(required = false) Long userId) {
         try {
-            postService.deleteComment(commentId, userId);
-            return ResponseEntity.ok().build();
+            postService.deleteComment(commentId, authenticatedUserService.getCurrentUserId());
+            return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
@@ -120,9 +140,9 @@ public class PostController {
 
     // Post likes endpoints (RESTful: /posts/{postId}/likes)
     @PostMapping("/posts/{postId}/likes")
-    public ResponseEntity<?> toggleLike(@PathVariable Long postId, @RequestParam Long userId) {
+    public ResponseEntity<?> toggleLike(@PathVariable Long postId, @RequestParam(required = false) Long userId) {
         try {
-            return ResponseEntity.ok(postService.toggleLike(postId, userId));
+            return ResponseEntity.ok(postService.toggleLike(postId, authenticatedUserService.getCurrentUserId()));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
@@ -130,9 +150,9 @@ public class PostController {
 
     // Comment likes endpoints (RESTful: /posts/comments/{commentId}/likes)
     @PostMapping("/posts/comments/{commentId}/likes")
-    public ResponseEntity<?> toggleCommentLike(@PathVariable Long commentId, @RequestParam Long userId) {
+    public ResponseEntity<?> toggleCommentLike(@PathVariable Long commentId, @RequestParam(required = false) Long userId) {
         try {
-            return ResponseEntity.ok(postService.toggleCommentLike(commentId, userId));
+            return ResponseEntity.ok(postService.toggleCommentLike(commentId, authenticatedUserService.getCurrentUserId()));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }

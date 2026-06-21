@@ -2,6 +2,7 @@ package com.app.backend.controller;
 
 import com.app.backend.dto.PostShareResponse;
 import com.app.backend.dto.ShareRequest;
+import com.app.backend.service.AuthenticatedUserService;
 import com.app.backend.service.ShareService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,22 +16,23 @@ import java.util.Map;
 @RequestMapping("/api")
 public class ShareController {
     private final ShareService shareService;
+    private final AuthenticatedUserService authenticatedUserService;
 
-    public ShareController(ShareService shareService) {
+    public ShareController(ShareService shareService, AuthenticatedUserService authenticatedUserService) {
         this.shareService = shareService;
+        this.authenticatedUserService = authenticatedUserService;
     }
 
     /**
-     * Share a post
-     * POST /api/posts/{postId}/share
+     * Ham chia se bai viet ve timeline ca nhan.
      */
     @PostMapping("/posts/{postId}/share")
-    public ResponseEntity<?> sharePost(@PathVariable Long postId, @RequestParam Long userId, @RequestBody ShareRequest request) {
+    public ResponseEntity<?> sharePost(@PathVariable Long postId, @RequestParam(required = false) Long userId, @RequestBody ShareRequest request) {
         try {
-            // Ensure the postId in path matches the one in request body
+            // Lay postId tren URL lam nguon dung duy nhat cho request.
             request.setPostId(postId);
-            PostShareResponse response = shareService.sharePost(userId, request);
-            return ResponseEntity.ok(response);
+            PostShareResponse response = shareService.sharePost(authenticatedUserService.getCurrentUserId(), request);
+            return ResponseEntity.status(201).body(response);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (Exception ex) {
@@ -39,8 +41,7 @@ public class ShareController {
     }
 
     /**
-     * Get shares for a post
-     * GET /api/posts/{postId}/shares
+     * Ham lay danh sach luot chia se cua mot bai.
      */
     @GetMapping("/posts/{postId}/shares")
     public List<PostShareResponse> getPostShares(@PathVariable Long postId,
@@ -51,8 +52,7 @@ public class ShareController {
     }
 
     /**
-     * Get share count for a post
-     * GET /api/posts/{postId}/shares/count
+     * Ham dem so luot chia se cua bai.
      */
     @GetMapping("/posts/{postId}/shares/count")
     public Map<String, Long> getShareCount(@PathVariable Long postId) {
@@ -62,33 +62,30 @@ public class ShareController {
     }
 
     /**
-     * Check if user has shared a post
-     * GET /api/posts/{postId}/share/status
+     * Ham kiem tra user hien tai da chia se bai nay chua.
      */
     @GetMapping("/posts/{postId}/share/status")
-    public Map<String, Boolean> getShareStatus(@PathVariable Long postId, @RequestParam Long userId) {
+    public Map<String, Boolean> getShareStatus(@PathVariable Long postId, @RequestParam(required = false) Long userId) {
         Map<String, Boolean> response = new HashMap<>();
-        response.put("hasShared", shareService.hasUserShared(postId, userId));
+        response.put("hasShared", shareService.hasUserShared(postId, authenticatedUserService.getCurrentUserId()));
         return response;
     }
 
     /**
-     * Delete a share
-     * DELETE /api/shares/{shareId}
+     * Ham xoa mot bai chia se.
      */
     @DeleteMapping("/shares/{shareId}")
-    public ResponseEntity<?> deleteShare(@PathVariable Long shareId, @RequestParam Long userId) {
+    public ResponseEntity<?> deleteShare(@PathVariable Long shareId, @RequestParam(required = false) Long userId) {
         try {
-            shareService.deleteShare(shareId, userId);
-            return ResponseEntity.ok().build();
+            shareService.deleteShare(shareId, authenticatedUserService.getCurrentUserId());
+            return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
     }
 
     /**
-     * Get shares in user's feed
-     * GET /api/feed/shares
+     * Ham lay cac bai chia se trong bang tin.
      */
     @GetMapping("/feed/shares")
     public List<PostShareResponse> getSharesForFeed(@RequestParam(required = false) Long viewerId,
@@ -98,8 +95,7 @@ public class ShareController {
     }
 
     /**
-     * Get shares in a group
-     * GET /api/groups/{groupId}/shares
+     * Ham lay cac bai chia se trong nhom.
      */
     @GetMapping("/groups/{groupId}/shares")
     public List<PostShareResponse> getGroupShares(@PathVariable Long groupId,
@@ -110,8 +106,7 @@ public class ShareController {
     }
 
     /**
-     * Get shares by a specific user (for user profile)
-     * GET /api/users/{userId}/shares
+     * Ham lay cac bai chia se cua mot user tren profile.
      */
     @GetMapping("/users/{userId}/shares")
     public List<PostShareResponse> getUserShares(@PathVariable Long userId,

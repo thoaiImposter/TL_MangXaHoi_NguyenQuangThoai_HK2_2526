@@ -1,5 +1,6 @@
 import PostComposer, { type PostComposerMode } from './PostComposer';
 import type { User } from '../types';
+import { useModalScrollLock } from '../hooks/useModalScrollLock';
 
 type EditingPost = {
   id: number;
@@ -21,6 +22,7 @@ type PostComposerModalProps = {
   closeDisabled?: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  onCreatePoll?: () => void;
 };
 
 export default function PostComposerModal({
@@ -36,7 +38,9 @@ export default function PostComposerModal({
   closeDisabled = false,
   onClose,
   onSuccess,
+  onCreatePoll,
 }: PostComposerModalProps) {
+  useModalScrollLock();
   const modalEyebrow = eyebrow || (editingData ? 'Chỉnh sửa bài viết' : 'Tạo bài viết');
   const modalTitle = title || 'Bạn đang nghĩ gì?';
 
@@ -63,6 +67,7 @@ export default function PostComposerModal({
             editingData={editingData}
             onSuccess={onSuccess}
             onClose={onClose}
+            onCreatePoll={onCreatePoll}
           />
         </div>
 

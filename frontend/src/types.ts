@@ -1,4 +1,4 @@
-export type UserRole = 'student' | 'advisor' | 'faculty_union' | 'school_union';
+export type UserRole = 'student' | 'advisor' | 'faculty_union' | 'school_union' | 'admin';
 
 export interface User {
   id: number;
@@ -12,6 +12,10 @@ export interface User {
   className: string | null;
   academicYear: string | null;
   academicTitle: string | null;
+  majorId: number | null;
+  majorCode: string | null;
+  majorName: string | null;
+  majorCampus: string | null;
   accountProtection: boolean;
   createdAt: string;
   updatedAt: string;
@@ -104,6 +108,10 @@ export interface PostShare {
   sharedToGroupName: string | null;
   createdAt: string;
   isOriginalPostAvailable: boolean;
+  originalPostPoll: boolean;
+  originalPostPollEndDate: string | null;
+  originalPostPollAllowMultiple: boolean;
+  originalPostMedia: PostMedia[];
 }
 
 export interface PostComment {
@@ -192,11 +200,28 @@ export interface ProfileUpdatePayload {
   fullName?: string;
   bio?: string;
   faculty?: string;
+  facultyId?: number | null;
   className?: string;
   academicYear?: string;
   academicTitle?: string;
+  majorId?: number | null;
   avatar?: string;
   cover?: string;
+}
+
+export interface Major {
+  id: number;
+  code: string;
+  name: string;
+  campus: string;
+  facultyId: number | null;
+  facultyName: string | null;
+}
+
+export interface Faculty {
+  id: number;
+  code: string;
+  name: string;
 }
 
 // Group types
@@ -258,10 +283,41 @@ export interface GroupNotification {
   groupId: number;
   groupName: string;
   userId: number;
-  type: 'join_request' | 'post_approved' | 'post_rejected' | 'member_removed' | 'role_changed' | 'join_approved' | 'join_rejected' | 'member_banned';
+  type: 'join_request' | 'post_approved' | 'post_rejected' | 'member_removed' | 'role_changed' | 'join_approved' | 'join_rejected' | 'member_banned' | 'class_announcement' | 'group_post_like' | 'group_post_comment' | 'group_comment_reply';
   message: string;
   targetType: string | null;
   targetId: number | null;
   isRead: boolean;
   createdAt: string;
 }
+
+export type ReportTargetType = 'post' | 'comment' | 'user' | 'group';
+export type ReportStatus = 'pending' | 'resolved' | 'rejected';
+
+export interface ReportItem {
+  id: number;
+  reporterId: number;
+  reporterName: string;
+  targetType: ReportTargetType;
+  targetId: number;
+  targetOwnerId: number | null;
+  targetTitle: string | null;
+  targetSnapshot: string | null;
+  targetUrl: string | null;
+  reason: string;
+  details: string | null;
+  status: ReportStatus;
+  resolution: string | null;
+  adminNote: string | null;
+  handledById: number | null;
+  handledByName: string | null;
+  createdAt: string;
+  handledAt: string | null;
+}
+
+export type AdminSection = 'overview' | 'reports' | 'users' | 'groups' | 'posts' | 'comments';
+export interface AdminStats { users: number; groups: number; posts: number; comments: number; pendingReports: number; }
+export interface AdminUserItem { id: number; fullName: string; email: string; role: UserRole; avatar: string | null; locked: boolean; createdAt: string; }
+export interface AdminGroupItem { id: number; name: string; description: string | null; avatar: string | null; privacy: string; creatorName: string; memberCount: number; createdAt: string; }
+export interface AdminPostItem { id: number; content: string; visibility: string; authorName: string; commentCount: number; groupId?: number; groupName?: string; createdAt: string; }
+export interface AdminCommentItem { id: number; content: string; authorName: string; postId: number; groupId?: number; parentCommentId: number | null; createdAt: string; }

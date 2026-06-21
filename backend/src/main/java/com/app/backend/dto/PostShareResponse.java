@@ -1,6 +1,8 @@
 package com.app.backend.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Response DTO for post share information
@@ -24,6 +26,10 @@ public class PostShareResponse {
     private String sharedToGroupName;
     private LocalDateTime createdAt;
     private boolean isOriginalPostAvailable;
+    private boolean originalPostPoll;
+    private LocalDateTime originalPostPollEndDate;
+    private boolean originalPostPollAllowMultiple;
+    private List<PostMediaResponse> originalPostMedia = List.of();
 
     public PostShareResponse() {}
 
@@ -105,6 +111,17 @@ public class PostShareResponse {
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 
+    @JsonProperty("isOriginalPostAvailable")
     public boolean isOriginalPostAvailable() { return isOriginalPostAvailable; }
     public void setOriginalPostAvailable(boolean isOriginalPostAvailable) { this.isOriginalPostAvailable = isOriginalPostAvailable; }
+    public boolean isOriginalPostPoll() { return originalPostPoll; }
+    public void setOriginalPostPoll(boolean originalPostPoll) { this.originalPostPoll = originalPostPoll; }
+    public LocalDateTime getOriginalPostPollEndDate() { return originalPostPollEndDate; }
+    public void setOriginalPostPollEndDate(LocalDateTime originalPostPollEndDate) { this.originalPostPollEndDate = originalPostPollEndDate; }
+    public boolean isOriginalPostPollAllowMultiple() { return originalPostPollAllowMultiple; }
+    public void setOriginalPostPollAllowMultiple(boolean originalPostPollAllowMultiple) { this.originalPostPollAllowMultiple = originalPostPollAllowMultiple; }
+    public List<PostMediaResponse> getOriginalPostMedia() { return originalPostMedia; }
+    public void setOriginalPostMedia(List<PostMediaResponse> originalPostMedia) {
+        this.originalPostMedia = originalPostMedia == null ? List.of() : originalPostMedia;
+    }
 }

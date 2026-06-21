@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import PostCard from '../components/PostCard';
 import ProfileHeader from '../components/ProfileHeader';
+import ReportButton from '../components/ReportButton';
 import ShareCard from '../components/ShareCard';
 import ProfilePage from './ProfilePage';
 import { api } from '../lib/api';
@@ -398,7 +399,7 @@ function UserProfilePage({ currentUser, onUpdateUser, onOpenMiniChat }: UserProf
           { label: 'Chia sẻ', value: userShares.length },
           { label: 'Bạn bè', value: acceptedFriends.length },
         ]}
-        actions={renderFriendAction()}
+        actions={<>{renderFriendAction()}<ReportButton reporterId={currentUser.id} targetType="user" targetId={targetId} className="btn btn-secondary" /></>}
       />
 
       {error && <div className="form-error">{error}</div>}

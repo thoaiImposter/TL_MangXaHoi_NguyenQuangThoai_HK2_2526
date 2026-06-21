@@ -9,11 +9,14 @@ public class RegisterRequest {
     private String fullName;
     private String role;
     private String avatar;
+    private String cover;
     private String bio;
     private String faculty;
     private String className;
     private String academicYear;
     private String academicTitle;
+    private Long facultyId;
+    private Long majorId;
     
     @JsonProperty("otp")
     private String otpCode;
@@ -50,6 +53,8 @@ public class RegisterRequest {
     
     public String getAvatar() { return avatar; }
     public void setAvatar(String avatar) { this.avatar = avatar; }
+    public String getCover() { return cover; }
+    public void setCover(String cover) { this.cover = cover; }
     
     public String getBio() { return bio; }
     public void setBio(String bio) { this.bio = bio; }
@@ -65,6 +70,10 @@ public class RegisterRequest {
     
     public String getAcademicTitle() { return academicTitle; }
     public void setAcademicTitle(String academicTitle) { this.academicTitle = academicTitle; }
+    public Long getFacultyId() { return facultyId; }
+    public void setFacultyId(Long facultyId) { this.facultyId = facultyId; }
+    public Long getMajorId() { return majorId; }
+    public void setMajorId(Long majorId) { this.majorId = majorId; }
     
     public String getOtpCode() { return otpCode; }
     public void setOtpCode(String otpCode) { this.otpCode = otpCode; }

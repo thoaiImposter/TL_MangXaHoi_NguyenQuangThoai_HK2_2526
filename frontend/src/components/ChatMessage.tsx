@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { resolveMediaUrl } from '../lib/api';
 import type { Message } from '../types';
 
@@ -6,6 +7,7 @@ interface ChatMessageProps {
   isOwn: boolean;
   showAvatar?: boolean;
   showSenderName?: boolean;
+  showOwnAvatar?: boolean;
   onImageClick?: (url: string) => void;
   onContextMenu?: (e: React.MouseEvent, messageId: number) => void;
   onRecall?: (messageId: number) => void;
@@ -24,17 +26,21 @@ function getMediaType(url: string): 'image' | 'video' | 'file' {
   return 'file';
 }
 
+const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
 export default function ChatMessage({
   message,
   isOwn,
   showAvatar = true,
   showSenderName = false,
+  showOwnAvatar = false,
   onImageClick,
   onContextMenu,
   onRecall,
   compact = false,
   mentionedNames = [],
 }: ChatMessageProps) {
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const { id, senderName, senderAvatar, content, mediaUrl, isRecalled, createdAt, isAllMentioned } = message;
 
   const formatTime = (s: string) => {
@@ -52,16 +58,42 @@ export default function ChatMessage({
   };
 
   const mediaType = mediaUrl ? getMediaType(mediaUrl) : null;
+  const renderInlineText = (text: string, keyPrefix: string) => {
+    const parts = text.split(URL_PATTERN);
+    return parts.map((part, index) => {
+      if (!/^(https?:\/\/|www\.)/i.test(part)) return part;
+      const match = part.match(/^(.*?)([.,!?;:)]+)?$/);
+      const linkText = match?.[1] || part;
+      const trailing = match?.[2] || '';
+      const href = /^www\./i.test(linkText) ? `https://${linkText}` : linkText;
+
+      return (
+        <span key={`${keyPrefix}-url-${index}`}>
+          <a
+            className="comment-link"
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {linkText}
+          </a>
+          {trailing}
+        </span>
+      );
+    });
+  };
+
   const renderContent = () => {
     if (!content) return null;
     const labels = [...mentionedNames.map((name) => `@${name}`), ...(isAllMentioned ? ['@mọi người'] : [])]
       .sort((a, b) => b.length - a.length);
-    if (!labels.length) return content;
+    if (!labels.length) return renderInlineText(content, 'message');
     const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
     return content.split(new RegExp(`(${escaped})`, 'gi')).map((part, index) =>
       labels.some((label) => label.toLocaleLowerCase('vi') === part.toLocaleLowerCase('vi'))
         ? <mark className="chat-inline-mention" key={`${part}-${index}`}>{part}</mark>
-        : part
+        : renderInlineText(part, `message-${index}`)
     );
   };
 
@@ -120,9 +152,9 @@ export default function ChatMessage({
       className={`chat-bubble-row ${isOwn ? 'me' : 'them'}`}
       onContextMenu={handleContextMenu}
     >
-      {!isOwn && showAvatar && (
+      {showAvatar && (!isOwn || showOwnAvatar) && (
         <div className="chat-bubble-avatar">
-          {senderAvatar ? <img src={senderAvatar} alt={senderName} /> : initials(senderName)}
+          {senderAvatar && !avatarFailed ? <img src={resolveMediaUrl(senderAvatar)} alt={senderName} onError={() => setAvatarFailed(true)} /> : initials(senderName)}
         </div>
       )}
       <div className="chat-bubble-content">

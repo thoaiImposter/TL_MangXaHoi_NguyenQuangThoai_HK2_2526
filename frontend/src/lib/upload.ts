@@ -48,8 +48,10 @@ export async function uploadFileDirect(
   let signatureResponse: Response;
   try {
     const token = localStorage.getItem('social_token');
+    const isRegistrationImage = !token && type === 'image' && (folder === 'avatars' || folder === 'covers');
+    const signaturePath = isRegistrationImage ? 'registration-signature' : 'signature';
     signatureResponse = await fetch(
-      `${BACKEND_URL}/files/signature?folder=${encodeURIComponent(folder)}&type=${encodeURIComponent(type)}`,
+      `${BACKEND_URL}/files/${signaturePath}?folder=${encodeURIComponent(folder)}&type=${encodeURIComponent(type)}`,
       { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : undefined },
     );
   } catch {

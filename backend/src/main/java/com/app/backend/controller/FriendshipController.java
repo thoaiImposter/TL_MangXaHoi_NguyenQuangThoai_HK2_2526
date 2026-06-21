@@ -1,6 +1,7 @@
 package com.app.backend.controller;
 
 import com.app.backend.dto.FriendshipResponse;
+import com.app.backend.service.AuthenticatedUserService;
 import com.app.backend.service.FriendshipService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,16 +16,27 @@ import java.util.Map;
 public class FriendshipController {
 
     private final FriendshipService friendshipService;
+    private final AuthenticatedUserService authenticatedUserService;
 
-    public FriendshipController(FriendshipService friendshipService) {
+    public FriendshipController(FriendshipService friendshipService, AuthenticatedUserService authenticatedUserService) {
         this.friendshipService = friendshipService;
+        this.authenticatedUserService = authenticatedUserService;
     }
 
     // Friend request endpoints (RESTful: /users/{userId}/friend-requests)
     @PostMapping("/users/{userId}/friend-requests")
     public ResponseEntity<?> sendFriendRequest(@PathVariable Long userId, @RequestParam Long targetId) {
         try {
-            return ResponseEntity.ok(friendshipService.sendRequest(userId, targetId));
+            return ResponseEntity.status(201).body(friendshipService.sendRequest(authenticatedUserService.getCurrentUserId(), targetId));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        }
+    }
+
+    @PostMapping("/friend-requests")
+    public ResponseEntity<?> sendCurrentUserFriendRequest(@RequestParam Long targetId) {
+        try {
+            return ResponseEntity.status(201).body(friendshipService.sendRequest(authenticatedUserService.getCurrentUserId(), targetId));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
@@ -36,20 +48,38 @@ public class FriendshipController {
     }
 
     @PutMapping("/friend-requests/{friendshipId}/accept")
-    public ResponseEntity<?> acceptFriendRequest(@PathVariable Long friendshipId, @RequestParam Long userId) {
+    public ResponseEntity<?> acceptFriendRequest(@PathVariable Long friendshipId, @RequestParam(required = false) Long userId) {
         try {
-            FriendshipResponse response = friendshipService.acceptRequestByFriendshipId(friendshipId, userId);
+            FriendshipResponse response = friendshipService.acceptRequestByFriendshipId(friendshipId, authenticatedUserService.getCurrentUserId());
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
     }
 
-    @DeleteMapping("/friend-requests/{friendshipId}")
-    public ResponseEntity<?> rejectOrCancelFriendRequest(@PathVariable Long friendshipId, @RequestParam Long userId) {
+    @PatchMapping("/friend-requests/{friendshipId}")
+    public ResponseEntity<?> updateFriendRequest(@PathVariable Long friendshipId, @RequestBody Map<String, String> payload) {
         try {
-            friendshipService.rejectOrCancelRequestByFriendshipId(friendshipId, userId);
-            return ResponseEntity.ok().build();
+            String status = payload.getOrDefault("status", "");
+            Long currentUserId = authenticatedUserService.getCurrentUserId();
+            if ("accepted".equalsIgnoreCase(status)) {
+                return ResponseEntity.ok(friendshipService.acceptRequestByFriendshipId(friendshipId, currentUserId));
+            }
+            if ("rejected".equalsIgnoreCase(status) || "cancelled".equalsIgnoreCase(status)) {
+                friendshipService.rejectOrCancelRequestByFriendshipId(friendshipId, currentUserId);
+                return ResponseEntity.noContent().build();
+            }
+            return ResponseEntity.badRequest().body("Unsupported friendship status");
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        }
+    }
+
+    @DeleteMapping("/friend-requests/{friendshipId}")
+    public ResponseEntity<?> rejectOrCancelFriendRequest(@PathVariable Long friendshipId, @RequestParam(required = false) Long userId) {
+        try {
+            friendshipService.rejectOrCancelRequestByFriendshipId(friendshipId, authenticatedUserService.getCurrentUserId());
+            return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }
@@ -62,10 +92,10 @@ public class FriendshipController {
     }
 
     @DeleteMapping("/friendships/{friendshipId}")
-    public ResponseEntity<?> unfriend(@PathVariable Long friendshipId, @RequestParam Long userId) {
+    public ResponseEntity<?> unfriend(@PathVariable Long friendshipId, @RequestParam(required = false) Long userId) {
         try {
-            friendshipService.unfriendByFriendshipId(friendshipId, userId);
-            return ResponseEntity.ok().build();
+            friendshipService.unfriendByFriendshipId(friendshipId, authenticatedUserService.getCurrentUserId());
+            return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         }

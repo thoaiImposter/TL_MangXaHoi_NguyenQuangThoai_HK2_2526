@@ -2,7 +2,10 @@ import { useState, type FormEvent, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { uploadFileUrl } from '../lib/upload';
-import type { User, UserRole } from '../types';
+import { ACADEMIC_YEAR_OPTIONS, campusLabel } from '../lib/academicCatalog';
+import SearchableSelect from '../components/SearchableSelect';
+import ProfileImagePicker from '../components/ProfileImagePicker';
+import type { Faculty, Major, User, UserRole } from '../types';
 
 type RegistrationStep = 'email' | 'otp' | 'details';
 
@@ -26,11 +29,15 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const countdownRef = useRef<number | null>(null);
   const otpInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedRole, setSelectedRole] = useState<UserRole>('student');
+  const [faculties, setFaculties] = useState<Faculty[]>([]);
+  const [majors, setMajors] = useState<Major[]>([]);
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [formData, setFormData] = useState({
@@ -38,12 +45,22 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
     confirmPassword: '',
     fullName: '',
     avatar: '',
+    cover: '',
     bio: '',
+    facultyId: '',
     faculty: '',
     className: '',
     academicYear: '',
     academicTitle: '',
+    majorId: '',
   });
+
+  useEffect(() => {
+    api.getFaculties().then(setFaculties).catch(() => setError('Không tải được danh sách khoa'));
+    api.getMajors().then(setMajors).catch(() => setError('Không tải được danh sách ngành đào tạo'));
+  }, []);
+
+  const filteredMajors = majors.filter((major) => major.facultyId === Number(formData.facultyId));
 
   const [otpConfig, setOtpConfig] = useState({
     expiresIn: 5,
@@ -240,8 +257,8 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
 
     // Role-specific validation
     if (selectedRole === 'student') {
-      if (!formData.faculty.trim() || !formData.className.trim()) {
-        setError('Sinh viên cần nhập đầy đủ khoa và lớp');
+      if (!formData.facultyId || !formData.className.trim() || !formData.majorId || !formData.academicYear) {
+        setError('Sinh viên cần chọn đầy đủ khoa, ngành, lớp và niên khóa');
         setLoading(false);
         return;
       }
@@ -251,13 +268,13 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
         setLoading(false);
         return;
       }
-      if (!formData.faculty.trim()) {
+      if (!formData.facultyId) {
         setError('Vui lòng nhập khoa phụ trách');
         setLoading(false);
         return;
       }
     } else if (selectedRole === 'faculty_union') {
-      if (!formData.faculty.trim()) {
+      if (!formData.facultyId) {
         setError('Vui lòng nhập khoa quản lý');
         setLoading(false);
         return;
@@ -271,11 +288,14 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
         fullName: formData.fullName.trim(),
         role: selectedRole,
         avatar: formData.avatar,
+        cover: formData.cover,
         bio: formData.bio,
         faculty: selectedRole !== 'school_union' ? formData.faculty : undefined,
+        facultyId: selectedRole !== 'school_union' ? Number(formData.facultyId) : undefined,
         className: selectedRole === 'student' ? formData.className : undefined,
         academicYear: selectedRole === 'student' ? formData.academicYear : undefined,
         academicTitle: selectedRole === 'advisor' ? formData.academicTitle : undefined,
+        majorId: selectedRole === 'student' ? Number(formData.majorId) : undefined,
         otp: otp,
       });
       localStorage.setItem('social_token', session.token);
@@ -357,7 +377,18 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => { setSelectedRole(opt.value); setEmail(''); setError(''); }}
+                      onClick={() => {
+                        setSelectedRole(opt.value);
+                        setEmail('');
+                        setError('');
+                        setFormData((current) => ({
+                          ...current,
+                          facultyId: '',
+                          faculty: '',
+                          majorId: '',
+                          academicTitle: '',
+                        }));
+                      }}
                       disabled={loading}
                       style={{
                         display: 'flex',
@@ -409,7 +440,7 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
                 </p>
               </div>
 
-              <button className="btn btn-primary btn-lg" type="submit" disabled={loading} style={{ width: '100%' }}>
+              <button className="btn btn-primary btn-lg" type="submit" disabled={loading || uploadingAvatar || uploadingCover} style={{ width: '100%' }}>
                 {loading ? (
                   <>
                     <span className="spinner" style={{ width: '18px', height: '18px', borderWidth: '2px' }}></span>
@@ -593,24 +624,14 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
               {selectedRole === 'advisor' && (
                 <div className="form-group">
                   <label className="form-label">Học vị *</label>
-                  <div style={{ position: 'relative' }}>
-                    <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)', fontSize: '18px' }}>
-                      🎖️
-                    </span>
-                    <select
-                      className="form-input"
-                      value={formData.academicTitle}
-                      onChange={(e) => setFormData({ ...formData, academicTitle: e.target.value })}
-                      required
-                      disabled={loading}
-                      style={{ paddingLeft: '48px', appearance: 'auto' }}
-                    >
-                      <option value="">-- Chọn học vị --</option>
-                      {ACADEMIC_TITLE_OPTIONS.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <SearchableSelect
+                    value={formData.academicTitle}
+                    options={ACADEMIC_TITLE_OPTIONS.map((title) => ({ value: title, label: title }))}
+                    onChange={(academicTitle) => setFormData({ ...formData, academicTitle })}
+                    placeholder="Chọn học vị"
+                    disabled={loading}
+                    required
+                  />
                 </div>
               )}
 
@@ -620,27 +641,38 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
                   <label className="form-label">
                     {selectedRole === 'student' ? 'Tên khoa *' : selectedRole === 'advisor' ? 'Khoa phụ trách *' : 'Khoa quản lý *'}
                   </label>
-                  <div style={{ position: 'relative' }}>
-                    <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)', fontSize: '18px' }}>
-                      🎓
-                    </span>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="Khoa Công nghệ Thông tin"
-                      value={formData.faculty}
-                      onChange={(e) => setFormData({ ...formData, faculty: e.target.value })}
-                      required
-                      disabled={loading}
-                      style={{ paddingLeft: '48px' }}
-                    />
-                  </div>
+                  <SearchableSelect
+                    value={formData.facultyId}
+                    options={faculties.map((faculty) => ({ value: String(faculty.id), label: faculty.name, keywords: faculty.code }))}
+                    onChange={(facultyId) => {
+                      const faculty = faculties.find((item) => String(item.id) === facultyId);
+                      setFormData({ ...formData, facultyId, faculty: faculty?.name ?? '', majorId: '' });
+                    }}
+                    placeholder="Chọn khoa"
+                    disabled={loading}
+                    required
+                  />
                 </div>
               )}
 
               {/* Student-only fields */}
               {selectedRole === 'student' && (
                 <>
+                  <div className="form-group">
+                    <label className="form-label">Ngành đào tạo *</label>
+                    <SearchableSelect
+                      value={formData.majorId}
+                      options={filteredMajors.map((major) => ({
+                        value: String(major.id),
+                        label: `${major.name} (${major.code}) - ${campusLabel(major.campus)}`,
+                        keywords: `${major.code} ${major.name}`,
+                      }))}
+                      onChange={(majorId) => setFormData({ ...formData, majorId })}
+                      placeholder={formData.facultyId ? 'Chọn ngành đào tạo' : 'Chọn khoa trước'}
+                      disabled={loading || !formData.facultyId}
+                      required
+                    />
+                  </div>
                   <div className="form-group">
                     <label className="form-label">Tên lớp *</label>
                     <div style={{ position: 'relative' }}>
@@ -662,47 +694,56 @@ function RegisterPage({ onAuth }: { onAuth: (user: User) => void }) {
 
                   <div className="form-group">
                     <label className="form-label">Niên khóa</label>
-                    <div style={{ position: 'relative' }}>
-                      <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)', fontSize: '18px' }}>
-                        📅
-                      </span>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="2021-2025"
-                        value={formData.academicYear}
-                        onChange={(e) => setFormData({ ...formData, academicYear: e.target.value })}
-                        disabled={loading}
-                        style={{ paddingLeft: '48px' }}
-                      />
-                    </div>
+                    <SearchableSelect
+                      value={formData.academicYear}
+                      options={ACADEMIC_YEAR_OPTIONS.map((year) => ({ value: year, label: year }))}
+                      onChange={(academicYear) => setFormData({ ...formData, academicYear })}
+                      placeholder="Chọn niên khóa"
+                      disabled={loading}
+                      required
+                    />
                   </div>
                 </>
               )}
 
-              <div className="form-group">
-                <label className="form-label">Avatar (tùy chọn)</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="form-input"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    if (file.size > 5 * 1024 * 1024) {
-                      setError('Kích thước ảnh không quá 5MB');
-                      return;
-                    }
-                    if (!file.type.startsWith('image/')) {
-                      setError('Vui lòng chọn file ảnh');
-                      return;
-                    }
-                    const avatarUrl = await uploadFileUrl(file, 'avatars');
-                    setFormData((current) => ({ ...current, avatar: avatarUrl }));
-                  }}
-                  disabled={loading}
-                />
-              </div>
+              <ProfileImagePicker
+                avatarUrl={formData.avatar}
+                coverUrl={formData.cover}
+                name={formData.fullName}
+                uploadingAvatar={uploadingAvatar}
+                uploadingCover={uploadingCover}
+                disabled={loading}
+                onAvatarRemove={() => setFormData((current) => ({ ...current, avatar: '' }))}
+                onCoverRemove={() => setFormData((current) => ({ ...current, cover: '' }))}
+                onAvatarSelect={async (file) => {
+                  setUploadingAvatar(true);
+                  setError('');
+                  try {
+                    if (file.size > 5 * 1024 * 1024) throw new Error('Kích thước ảnh không quá 5MB');
+                    if (!file.type.startsWith('image/')) throw new Error('Vui lòng chọn file ảnh');
+                    const avatar = await uploadFileUrl(file, 'avatars');
+                    setFormData((current) => ({ ...current, avatar }));
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Không tải được ảnh đại diện');
+                  } finally {
+                    setUploadingAvatar(false);
+                  }
+                }}
+                onCoverSelect={async (file) => {
+                  setUploadingCover(true);
+                  setError('');
+                  try {
+                    if (file.size > 8 * 1024 * 1024) throw new Error('Kích thước ảnh bìa không quá 8MB');
+                    if (!file.type.startsWith('image/')) throw new Error('Vui lòng chọn file ảnh');
+                    const cover = await uploadFileUrl(file, 'covers');
+                    setFormData((current) => ({ ...current, cover }));
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Không tải được ảnh bìa');
+                  } finally {
+                    setUploadingCover(false);
+                  }
+                }}
+              />
 
               <div className="form-group">
                 <label className="form-label">Bio (tùy chọn)</label>

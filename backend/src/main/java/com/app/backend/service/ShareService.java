@@ -1,6 +1,7 @@
 package com.app.backend.service;
 
 import com.app.backend.dto.PostShareResponse;
+import com.app.backend.dto.PostMediaResponse;
 import com.app.backend.dto.ShareRequest;
 import com.app.backend.entity.*;
 import com.app.backend.repository.*;
@@ -21,49 +22,51 @@ public class ShareService {
     private final PostRepository postRepository;
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
-    private final GroupMemberRepository groupMemberRepository;
     private final NotificationService notificationService;
     private final PrivacyAccessService privacyAccessService;
+    private final PostMediaRepository postMediaRepository;
 
     public ShareService(PostShareRepository postShareRepository, PostRepository postRepository, 
                        UserRepository userRepository, GroupRepository groupRepository,
-                       GroupMemberRepository groupMemberRepository,
-                       NotificationService notificationService, PrivacyAccessService privacyAccessService) {
+                       NotificationService notificationService, PrivacyAccessService privacyAccessService,
+                       PostMediaRepository postMediaRepository) {
         this.postShareRepository = postShareRepository;
         this.postRepository = postRepository;
         this.userRepository = userRepository;
         this.groupRepository = groupRepository;
-        this.groupMemberRepository = groupMemberRepository;
         this.notificationService = notificationService;
         this.privacyAccessService = privacyAccessService;
+        this.postMediaRepository = postMediaRepository;
     }
 
     /**
-     * Share a post to user's own timeline or to a group
-     * Creates a new Post that references the original post
+     * Ham chia se bai viet ve timeline ca nhan va tao ban ghi lien ket bai goc.
      */
     public PostShareResponse sharePost(Long userId, ShareRequest request) {
-        // Validate user
+        if (request.getTargetGroupId() != null) {
+            throw new IllegalArgumentException("Posts can only be shared to your personal timeline");
+        }
+        // Tim user thuc hien chia se.
         User sharer = userRepository.findById(userId)
             .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        // Validate post
+        // Tim bai goc va kiem tra user co quyen xem bai goc.
         Post originalPost = postRepository.findById(request.getPostId())
             .orElseThrow(() -> new IllegalArgumentException("Post not found"));
         privacyAccessService.requirePostAccess(originalPost, userId);
 
-        // Check if already shared by this user
+        // Mot user chi duoc chia se mot bai goc mot lan.
         if (postShareRepository.existsByOriginalPostIdAndSharedByUserId(request.getPostId(), userId)) {
             throw new IllegalArgumentException("You have already shared this post");
         }
 
-        // Validate share content
+        // Noi dung chia se co the rong.
         String shareContent = request.getShareContent() == null ? "" : request.getShareContent().trim();
 
-        // Validate share visibility
+        // Chuan hoa quyen rieng tu cua bai chia se.
         String shareVisibility = privacyAccessService.normalizeScope(request.getShareVisibility(), PrivacyAccessService.PUBLIC);
 
-        // Create a new Post for the share (like Facebook - share creates a new post)
+        // Tao mot Post moi dai dien cho bai chia se tren timeline.
         Post sharePost = new Post();
         sharePost.setTitle("Bài viết được chia sẻ");
         sharePost.setContent(shareContent);
@@ -71,7 +74,7 @@ public class ShareService {
         sharePost.setAuthor(sharer);
         Post savedSharePost = postRepository.save(sharePost);
 
-        // Create PostShare record linking to original post
+        // Luu lien ket giua bai chia se va bai goc.
         PostShare share = new PostShare();
         share.setOriginalPost(originalPost);
         share.setSharedBy(sharer);
@@ -79,30 +82,9 @@ public class ShareService {
         share.setShareVisibility(shareVisibility);
         share.setSharedPost(savedSharePost); // Link to the new post
 
-        // Handle group sharing
-        if (request.getTargetGroupId() != null) {
-            Group targetGroup = groupRepository.findById(request.getTargetGroupId())
-                .orElseThrow(() -> new IllegalArgumentException("Group not found"));
-
-            // Check if user is a member of the group
-            boolean isMember = groupMemberRepository.findByGroupIdAndUserId(request.getTargetGroupId(), userId)
-                .map(member -> "active".equals(member.getStatus()))
-                .orElse(false);
-
-            if (!isMember) {
-                throw new IllegalArgumentException("You must be a member of the group to share posts there");
-            }
-
-            share.setSharedToGroup(targetGroup);
-            shareVisibility = targetGroup.getPrivacy();
-            share.setShareVisibility(shareVisibility);
-            savedSharePost.setVisibility(targetGroup.getPrivacy());
-            postRepository.save(savedSharePost);
-        }
-
         PostShare savedShare = postShareRepository.save(share);
 
-        // Notify original post author
+        // Thong bao cho tac gia bai goc neu nguoi share khac tac gia.
         if (!originalPost.getAuthor().getId().equals(userId)) {
             notificationService.createShareNotification(userId, request.getPostId(), originalPost.getAuthor().getId());
         }
@@ -111,28 +93,28 @@ public class ShareService {
     }
 
     /**
-     * Get shares for a specific post with visibility check
+     * Ham lay cac luot chia se cua mot bai, co kiem tra quyen xem.
      */
     public List<PostShareResponse> getPostShares(Long postId, Long viewerId, int page, int size) {
         return collectVisibleShares(page, size, viewerId, pageable -> postShareRepository.findByOriginalPostId(postId, pageable), false);
     }
 
     /**
-     * Get share count for a post
+     * Ham dem so luot chia se cua bai viet.
      */
     public long getShareCount(Long postId) {
         return postShareRepository.countByOriginalPostId(postId);
     }
 
     /**
-     * Check if a user has shared a specific post
+     * Ham kiem tra user da chia se bai nay chua.
      */
     public boolean hasUserShared(Long postId, Long userId) {
         return postShareRepository.existsByOriginalPostIdAndSharedByUserId(postId, userId);
     }
 
     /**
-     * Delete a share
+     * Ham xoa bai chia se cua chinh user.
      */
     @Transactional
     public void deleteShare(Long shareId, Long userId) {
@@ -152,11 +134,11 @@ public class ShareService {
     }
 
     /**
-     * Get shares in user's feed (shares from friends and public shares)
+     * Ham lay cac bai chia se hien tren bang tin.
      */
     public List<PostShareResponse> getSharesForFeed(Long viewerId, int page, int size) {
         if (viewerId == null) {
-            // For anonymous users, only show public shares
+            // Chua dang nhap thi chi hien chia se public.
             return getPublicShares(page, size);
         }
 
@@ -164,7 +146,7 @@ public class ShareService {
     }
 
     /**
-     * Get shares in a group
+     * Ham lay cac bai chia se trong nhom.
      */
     public List<PostShareResponse> getGroupShares(Long groupId, Long viewerId, int page, int size) {
         Group group = groupRepository.findById(groupId)
@@ -175,16 +157,22 @@ public class ShareService {
     }
 
     /**
-     * Get shares by a specific user (for user profile)
+     * Ham lay cac bai ma mot user da chia se tren profile.
      */
     public List<PostShareResponse> getUserShares(Long userId, Long viewerId, int page, int size) {
         return collectVisibleShares(page, size, viewerId, pageable -> postShareRepository.findBySharedByUserId(userId, pageable), false);
     }
 
+    /**
+     * Ham lay share public cho truong hop chua co viewer.
+     */
     private List<PostShareResponse> getPublicShares(int page, int size) {
         return collectVisibleShares(page, size, null, postShareRepository::findTimelineShares, false);
     }
 
+    /**
+     * Ham chuyen PostShare sang response, an bai goc neu viewer khong co quyen xem.
+     */
     private PostShareResponse toShareResponse(PostShare share, Long viewerId) {
         Post originalPost = share.getOriginalPost();
         boolean isOriginalAvailable = privacyAccessService.canViewPost(originalPost, viewerId);
@@ -193,7 +181,7 @@ public class ShareService {
         Group sharedToGroup = share.getSharedToGroup();
         Post sharedPost = share.getSharedPost();
 
-        return new PostShareResponse(
+        PostShareResponse response = new PostShareResponse(
             share.getId(),
             originalPost.getId(),
             isOriginalAvailable ? originalPost.getTitle() : null,
@@ -213,8 +201,29 @@ public class ShareService {
             share.getCreatedAt(),
             isOriginalAvailable
         );
+        if (isOriginalAvailable) {
+            response.setOriginalPostPoll(originalPost.isPoll());
+            response.setOriginalPostPollEndDate(originalPost.getPollEndDate());
+            response.setOriginalPostPollAllowMultiple(originalPost.isPollAllowMultiple());
+            response.setOriginalPostMedia(
+                postMediaRepository.findByPostIdOrderByMediaOrderAsc(originalPost.getId()).stream()
+                    .map(media -> new PostMediaResponse(
+                        media.getId(),
+                        media.getMediaType(),
+                        media.getMediaUrl(),
+                        media.getMediaName(),
+                        media.getMediaSize(),
+                        media.getMediaOrder()
+                    ))
+                    .toList()
+            );
+        }
+        return response;
     }
 
+    /**
+     * Ham gom share co the hien thi, co phan trang va loc theo quyen rieng tu.
+     */
     private List<PostShareResponse> collectVisibleShares(
             int requestedPage,
             int requestedSize,
