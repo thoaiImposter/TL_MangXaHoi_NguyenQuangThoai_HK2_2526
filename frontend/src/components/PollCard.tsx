@@ -14,11 +14,15 @@ export default function PollCard({ post, userId }: PollCardProps) {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
 
+  const applyResults = (data: PollResults) => {
+    setResults(data);
+    setSelected(data.options.filter((option) => option.votedByMe).map((option) => option.id));
+  };
+
   const load = async () => {
     try {
       const data = await api.getPollResults(postId, userId);
-      setResults(data);
-      setSelected(data.options.filter((option) => option.votedByMe).map((option) => option.id));
+      applyResults(data);
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không tải được cuộc bình chọn');
@@ -42,7 +46,9 @@ export default function PollCard({ post, userId }: PollCardProps) {
     if (!selected.length || working) return;
     setWorking(true);
     try {
-      setResults(await api.votePoll(postId, userId, selected));
+      const data = await api.votePoll(postId, userId, selected);
+      applyResults(data);
+      await load();
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể bình chọn');
@@ -56,7 +62,6 @@ export default function PollCard({ post, userId }: PollCardProps) {
     try {
       await api.removePollVote(postId, userId);
       await load();
-      setSelected([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể hủy bình chọn');
     } finally {

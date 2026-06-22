@@ -408,7 +408,7 @@ export default function GroupDetailPage() {
       await api.createGroupPoll(parseInt(groupId), userId, pollData);
       setShowPollCreator(false);
       alert('Đã tạo bình chọn thành công!');
-      loadGroupData();
+      await loadGroupData();
     } catch (err) {
       console.error('Failed to create poll:', err);
       alert('Không tạo được bình chọn: ' + (err instanceof Error ? err.message : 'Lỗi không xác định'));

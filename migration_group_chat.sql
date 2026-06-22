@@ -1,6 +1,7 @@
 -- FILE NÀY CHỈ CHỨA DATA TEST BỔ SUNG
 -- HÃY CHẠY FILE NÀY SAU KHI ĐÃ CHẠY FILE SCRIPT PHẦN KHUNG (SCHEMA) ĐẦU TIÊN
 USE social_app;
+SET NAMES utf8mb4;
 
 -- ============================================================
 -- PHẦN 1: CHÈN DỮ LIỆU 5 GIẢNG VIÊN (TÊN TUỔI RÕ RÀNG)
@@ -8,7 +9,7 @@ USE social_app;
 -- (Mã băm BCrypt: $2a$10$5CmseHv4gowuWPyCxsQqiur2HkMHkbwxkHqxocQfoNzGC4q2IHGpS)
 -- ============================================================
 
-INSERT INTO users (
+INSERT IGNORE INTO users (
     email, password, full_name, role, bio, faculty, academic_title, account_protection, account_locked, created_at, updated_at
 ) VALUES
 -- 2 Giảng viên thuộc Khoa Công nghệ Thông tin
@@ -29,7 +30,7 @@ INSERT INTO users (
 -- Toàn bộ dùng chung mật khẩu: Thoai123@
 -- ============================================================
 
-INSERT INTO users (
+INSERT IGNORE INTO users (
     email, password, full_name, role, bio, faculty, class_name, academic_year, major_id, account_protection, account_locked, created_at, updated_at
 ) VALUES
 -- Nhóm 1: 10 Sinh viên thuộc Khoa Công nghệ Thông tin (Ngành CNTT hoặc Hệ thống thông tin)
